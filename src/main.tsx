@@ -70,6 +70,7 @@ function App() {
   const [labelMode, setLabelMode] = useState<LabelMode>('name');
   const [controlsCollapsed, setControlsCollapsed] = useState(true);
   const startRef = useRef(0), pausedRef = useRef(0), chordRef = useRef<string | null>(null);
+  const keyboardToggleRef = useRef<() => void>(() => undefined);
   const timedNotes = useMemo<TimedNote[]>(() => notes.map(note => ({ ...note, played: note.start < pausedRef.current })), [notes]);
   const notesRef = useRef<TimedNote[]>(timedNotes); notesRef.current = timedNotes;
   const elapsedRef = useRef(elapsed); elapsedRef.current = elapsed;
@@ -124,6 +125,18 @@ function App() {
     return () => { cancelAnimationFrame(drawRaf); window.removeEventListener('resize', resize); };
   }, [bpm, gridDelay, viewMode, labelMode, keySignature]);
   const toggle = () => { if (playing) { pausedRef.current = Math.min(duration, pausedRef.current + (performance.now() - startRef.current) / 1000); elapsedRef.current = pausedRef.current; setElapsed(pausedRef.current); setPlaying(false); } else { if (pausedRef.current >= duration) { pausedRef.current = 0; elapsedRef.current = 0; setElapsed(0); notesRef.current.forEach(note => { note.played = false; }); } const ctx = audioRef.current ?? new AudioContext(); audioRef.current = ctx; void ctx.resume(); if (!pianoRef.current && !pianoLoadingRef.current) { pianoLoadingRef.current = true; const piano = new SplendidGrandPiano(ctx, { notesToLoad: { notes: Array.from({ length: END_MIDI - START_MIDI + 1 }, (_, i) => START_MIDI + i), velocityRange: [1, 127] } }); void piano.load.then(() => { pianoRef.current = piano; }).catch(() => undefined).finally(() => { pianoLoadingRef.current = false; }); } startRef.current = performance.now(); setPlaying(true); } };
+  keyboardToggleRef.current = toggle;
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.code !== 'Space' || event.repeat) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.matches('input, select, textarea, button, [contenteditable="true"]')) return;
+      event.preventDefault();
+      keyboardToggleRef.current();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
   const seek = (time: number) => { pausedRef.current = time; startRef.current = performance.now(); setElapsed(time); notesRef.current.forEach(note => { note.played = note.start < time; }); };
   const reset = () => { pausedRef.current = 0; setElapsed(0); setPlaying(false); notesRef.current.forEach(n => { n.played = false; }); };
   const changeBpm = (nextBpm: number) => setBpm(Math.max(30, Math.min(300, nextBpm)));
