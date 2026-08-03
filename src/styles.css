@@ -85,3 +85,7 @@ footer { flex:0 0 40px; }
 .secondary-beams i.visible { background:#615d55; }
 .score-cursor { position:absolute; z-index:5; top:-1px; bottom:-1px; width:2px; transform:translateX(-1px); background:#e35347; box-shadow:0 0 0 1px rgba(255,255,255,.45); pointer-events:none; }
 @media (max-width: 720px) { .score-stage { padding:58px 12px 24px; } .score-sheet { margin:0; padding:26px 20px 40px; } .score-heading { align-items:flex-start; flex-direction:column; gap:10px; } .score-meta { white-space:normal; } }
+.canvas-wrap:not(.score-mode) { overscroll-behavior:contain; }
+.canvas-wrap:not(.score-mode) canvas { cursor:default; }
+input[type=range].roll-scrollbar { position:absolute; z-index:6; top:58px; right:9px; bottom:calc(min(150px, 20%) + 14px); width:16px; height:auto; margin:0; padding:0; writing-mode:vertical-lr; direction:rtl; accent-color:#ff6b5f; cursor:pointer; }
+input[type=range].roll-scrollbar:focus-visible { outline:2px solid #ffab57; outline-offset:3px; }
