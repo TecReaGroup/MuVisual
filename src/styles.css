@@ -47,3 +47,41 @@ footer { flex:0 0 40px; }
 }
 @media (prefers-reduced-motion: reduce) { .chord-display { transition:none; } }
 @media (max-width: 720px) { .topbar { flex-basis:64px; padding:0 16px; height:64px; } .session { display:none; } .workspace { grid-template-columns:1fr; grid-template-rows:minmax(450px,1fr) auto; overflow-y:auto; } .canvas-wrap { min-height:470px; } .chord-display { top:38px; font-size:24px; } .controls { min-height:max-content; overflow:visible; border-left:0; border-top:1px solid #20232c; padding:22px 18px; } .transport { margin-bottom:22px; } .control { display:inline-block; width:49%; vertical-align:top; padding-right:12px; border-top:0; } .legend { display:none; } footer { padding:0 16px; font-size:8px; } }
+
+.view-switch { display:flex; gap:4px; pointer-events:auto; margin-top:-7px; }
+.view-switch button { width:30px; height:28px; display:grid; place-items:center; border:1px solid #343946; background:#151922; color:#707887; }
+.view-switch button:hover, .view-switch button.selected { color:#171419; border-color:#ff6b5f; background:#ff6b5f; }
+.score-mode { background:#11141b; }
+.score-stage { height:100%; overflow:auto; padding:60px 28px 34px; scrollbar-color:#414754 #11141b; }
+.score-sheet { min-width:880px; max-width:1180px; margin:0 auto; color:#171a20; background:#f1eee7; box-shadow:0 14px 45px rgba(0,0,0,.28); padding:30px 36px 54px; }
+.score-heading { display:flex; justify-content:space-between; align-items:flex-end; border-bottom:1px solid #c9c3b7; padding-bottom:18px; margin-bottom:28px; }
+.score-heading span, .score-meta, .staff-labels { color:#7f786c; font:10px 'DM Mono'; letter-spacing:.12em; }
+.score-heading strong { display:block; margin-top:7px; font:600 22px 'Space Grotesk'; text-transform:uppercase; letter-spacing:0; }
+.score-meta { white-space:nowrap; }
+.score-system { position:relative; display:grid; grid-template-columns:42px 1fr; margin-bottom:30px; }
+.staff-labels { display:flex; flex-direction:column; justify-content:space-around; padding:18px 0 16px; line-height:1; }
+.score-rows { position:relative; display:grid; grid-template-rows:1fr 1fr; border-top:1px solid #b8b0a3; border-bottom:1px solid #b8b0a3; }
+.score-row { display:flex; min-height:82px; }
+.score-row + .score-row { border-top:1px solid #d2ccc1; }
+.score-measure { position:relative; flex:1 1 0; min-width:0; display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); column-gap:8px; align-items:center; padding:18px 14px 10px; border-left:2px solid #5c554b; }
+.score-measure:last-child { border-right:2px solid #5c554b; }
+.measure-number { position:absolute; top:3px; left:8px; color:#9e968a; font:9px 'DM Mono'; }
+.score-beat { position:relative; min-width:0; height:50px; }
+.score-slots { position:absolute; inset:0; display:grid; }
+.rhythm-quarter .score-slots, .rhythm-empty .score-slots { grid-template-columns:minmax(0, 1fr); }
+.rhythm-eighth .score-slots { grid-template-columns:repeat(2, minmax(0, 1fr)); }
+.rhythm-sixteenth .score-slots { grid-template-columns:repeat(4, minmax(0, 1fr)); }
+.score-slot { position:relative; display:flex; align-items:flex-start; justify-content:center; padding-top:9px; color:#191c22; font:500 22px 'Space Grotesk'; line-height:1; }
+.score-number { position:relative; z-index:2; letter-spacing:0; }
+.octave-dots { position:absolute; left:50%; display:flex; gap:3px; transform:translateX(-50%); }
+.octave-dots.high { top:2px; }
+.octave-dots.low { top:34px; }
+.octave-dots i { width:3px; height:3px; border-radius:50%; background:currentColor; }
+.primary-beam, .quarter-line { position:absolute; z-index:1; height:1px; background:#615d55; }
+.primary-beam { left:2px; right:2px; bottom:9px; }
+.quarter-line { left:35%; right:35%; top:21px; }
+.secondary-beams { position:absolute; z-index:1; left:2px; right:2px; bottom:4px; height:1px; display:grid; grid-template-columns:repeat(4, 1fr); }
+.secondary-beams i { height:1px; background:transparent; }
+.secondary-beams i.visible { background:#615d55; }
+.score-cursor { position:absolute; z-index:5; top:-1px; bottom:-1px; width:2px; transform:translateX(-1px); background:#e35347; box-shadow:0 0 0 1px rgba(255,255,255,.45); pointer-events:none; }
+@media (max-width: 720px) { .score-stage { padding:58px 12px 24px; } .score-sheet { margin:0; padding:26px 20px 40px; } .score-heading { align-items:flex-start; flex-direction:column; gap:10px; } .score-meta { white-space:normal; } }
