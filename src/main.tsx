@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { FileUp, ListMusic, Minus, Pause, Play, Plus, RotateCcw, Volume2, VolumeX, Piano } from 'lucide-react';
+import { FileUp, ListMusic, Minus, PanelRightClose, PanelRightOpen, Pause, Play, Plus, RotateCcw, Volume2, VolumeX, Piano } from 'lucide-react';
 import { Midi } from '@tonejs/midi';
 import { SplendidGrandPiano } from 'smplr';
 import { JianpuView, numberForPitch } from './JianpuView';
@@ -68,6 +68,7 @@ function App() {
   const [notes, setNotes] = useState<Note[]>(demoNotes), [playing, setPlaying] = useState(false), [bpm, setBpm] = useState(92), [keySignature, setKeySignature] = useState('C:major'), [volume, setVolume] = useState(72), [muted, setMuted] = useState(false), [gridDelay, setGridDelay] = useState(0), [elapsed, setElapsed] = useState(0), [loadedName, setLoadedName] = useState('Demo arrangement'), [chordName, setChordName] = useState<string | null>(null), [viewMode, setViewMode] = useState<'roll' | 'score'>('roll');
   const [tempoMap, setTempoMap] = useState<TempoPoint[]>([{ beat: 0, time: 0, bpm: 92 }]);
   const [labelMode, setLabelMode] = useState<LabelMode>('name');
+  const [controlsCollapsed, setControlsCollapsed] = useState(true);
   const startRef = useRef(0), pausedRef = useRef(0), chordRef = useRef<string | null>(null);
   const timedNotes = useMemo<TimedNote[]>(() => notes.map(note => ({ ...note, played: note.start < pausedRef.current })), [notes]);
   const notesRef = useRef<TimedNote[]>(timedNotes); notesRef.current = timedNotes;
@@ -134,7 +135,7 @@ function App() {
         <div className="session"><span className="status-dot" />SESSION 04 <span className="divider" />{loadedName}</div>
         <label className="upload"><FileUp size={16} /> IMPORT MIDI<input type="file" accept=".mid,.midi" onChange={e => e.target.files?.[0] && upload(e.target.files[0])} /></label>
       </header>
-      <section className="workspace">
+      <section className={`workspace ${controlsCollapsed ? 'controls-collapsed' : ''}`}>
         <div className={`canvas-wrap ${viewMode === 'score' ? 'score-mode' : ''}`} onWheel={viewMode === 'roll' ? event => {
           event.preventDefault();
           const beatStep = 60 / bpm;
@@ -145,10 +146,12 @@ function App() {
             <div className={`chord-display ${chordName ? 'visible' : ''}`} aria-live="polite">{chordName ?? ''}</div>
             <input className="roll-scrollbar" type="range" min="0" max={duration} step="0.01" value={Math.min(elapsed, duration)} onChange={event => seek(+event.target.value)} aria-label="Scroll piano visualizer playback position" />
           </> : <JianpuView notes={timedNotes} elapsed={elapsed} tempoMap={tempoMap} keySignature={keySignature} />}
-          <div className="canvas-label"><span>{viewMode === 'roll' ? 'LIVE VISUALIZER' : 'MIDI 简谱 · NUMBERED NOTATION'}</span><div className="view-switch" role="group" aria-label="Visualization mode"><button className={viewMode === 'roll' ? 'selected' : ''} onClick={() => setViewMode('roll')} aria-label="Piano roll view" title="Piano roll view"><Piano size={15} /></button><button className={viewMode === 'score' ? 'selected' : ''} onClick={() => setViewMode('score')} aria-label="MIDI numbered notation view" title="MIDI numbered notation view"><ListMusic size={15} /></button></div></div>
+          <div className="canvas-label"><span>{viewMode === 'roll' ? 'LIVE VISUALIZER' : 'MIDI 简谱 · NUMBERED NOTATION'}</span><div className="view-switch" role="group" aria-label="Visualization and settings"><button className={viewMode === 'roll' ? 'selected' : ''} onClick={() => setViewMode('roll')} aria-label="Piano roll view" title="Piano roll view"><Piano size={15} /></button><button className={viewMode === 'score' ? 'selected' : ''} onClick={() => setViewMode('score')} aria-label="MIDI numbered notation view" title="MIDI numbered notation view"><ListMusic size={15} /></button><button onClick={() => setControlsCollapsed(value => !value)} aria-label={controlsCollapsed ? 'Open settings panel' : 'Close settings panel'} title={controlsCollapsed ? 'Open settings panel' : 'Close settings panel'}>{controlsCollapsed ? <PanelRightOpen size={15} /> : <PanelRightClose size={15} />}</button></div></div>
         </div>
-        <aside className="controls">
-          <div className="eyebrow">PLAYBACK CONTROL</div>
+        <aside className={`controls ${controlsCollapsed ? 'collapsed' : ''}`}>
+          <div className="controls-header">
+            <div className="eyebrow">PLAYBACK CONTROL</div>
+          </div>
           <div className="progress-control">
             <input type="range" min="0" max={duration} step="0.01" value={Math.min(elapsed, duration)} onChange={e => seek(+e.target.value)} aria-label="Playback progress" />
             <div><span>{formatTime(elapsed)}</span><span>{formatTime(duration)}</span></div>

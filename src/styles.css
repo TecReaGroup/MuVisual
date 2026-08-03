@@ -97,3 +97,9 @@ footer { flex:0 0 40px; }
 .canvas-wrap:not(.score-mode) canvas { cursor:default; }
 input[type=range].roll-scrollbar { position:absolute; z-index:6; top:58px; right:9px; bottom:calc(min(150px, 20%) + 14px); width:16px; height:auto; margin:0; padding:0; writing-mode:vertical-lr; direction:rtl; accent-color:#ff6b5f; cursor:pointer; }
 input[type=range].roll-scrollbar:focus-visible { outline:2px solid #ffab57; outline-offset:3px; }
+.controls { position:relative; }
+.controls-header { min-height:30px; display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:18px; }
+.controls-header .eyebrow { margin:0; }
+.controls-header + .progress-control { margin-top:0; }
+.controls.collapsed { display:none; }
+@media (min-width:721px) { .workspace.controls-collapsed { grid-template-columns:minmax(0,1fr); } }
