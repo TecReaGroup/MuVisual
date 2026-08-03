@@ -2,10 +2,13 @@ import { useEffect, useMemo, useRef } from 'react';
 
 export type ScoreNote = {
   pitch: number;
+  start: number;
+  duration: number;
   beat: number;
   durationBeats: number;
   hand: 'left' | 'right';
 };
+export type TempoPoint = { beat: number; time: number; bpm: number };
 
 const KEY_ROOTS: Record<string, number> = {
   C: 0, G: 7, D: 2, A: 9, E: 4, B: 11, F: 5,
@@ -17,7 +20,7 @@ function parseKey(keySignature: string) {
   return { name, root: KEY_ROOTS[name] ?? 0, scale };
 }
 
-function numberForPitch(pitch: number, keySignature: string) {
+export function numberForPitch(pitch: number, keySignature: string) {
   const { name, root, scale } = parseKey(keySignature);
   const intervals = scale === 'minor' ? [0, 2, 3, 5, 7, 8, 10] : [0, 2, 4, 5, 7, 9, 11];
   const relative = (pitch - 60 - root + 120) % 12;
@@ -97,17 +100,26 @@ function Beat({ beat, voice, notes, keySignature }: {
   </div>;
 }
 
-export function JianpuView({ notes, elapsed, bpm, keySignature }: {
+function beatAtTime(time: number, tempoMap: TempoPoint[]) {
+  let point = tempoMap[0] ?? { beat: 0, time: 0, bpm: 120 };
+  for (const tempo of tempoMap) {
+    if (tempo.time > time) break;
+    point = tempo;
+  }
+  return point.beat + (time - point.time) * point.bpm / 60;
+}
+
+export function JianpuView({ notes, elapsed, tempoMap, keySignature }: {
   notes: ScoreNote[];
   elapsed: number;
-  bpm: number;
+  tempoMap: TempoPoint[];
   keySignature: string;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const quantized = useMemo(() => quantizeNotes(notes), [notes]);
   const lastBeat = Math.max(0, ...notes.map(note => note.beat));
   const totalMeasures = Math.max(1, Math.ceil((lastBeat + 2) / 4));
-  const currentBeat = Math.max(0, elapsed * bpm / 60);
+  const currentBeat = Math.max(0, beatAtTime(elapsed, tempoMap));
   const activeStep = Math.floor(currentBeat * 4);
   const systems = useMemo(() => Array.from({ length: Math.ceil(totalMeasures / 2) }, (_, system) =>
     [system * 2, system * 2 + 1].filter(measure => measure < totalMeasures)), [totalMeasures]);

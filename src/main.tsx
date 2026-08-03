@@ -3,12 +3,14 @@ import { createRoot } from 'react-dom/client';
 import { FileUp, ListMusic, Minus, Pause, Play, Plus, RotateCcw, Volume2, VolumeX, Piano } from 'lucide-react';
 import { Midi } from '@tonejs/midi';
 import { SplendidGrandPiano } from 'smplr';
-import { JianpuView } from './JianpuView';
+import { JianpuView, numberForPitch } from './JianpuView';
 import './styles.css';
 
 type Hand = 'left' | 'right';
-type Note = { pitch: number; beat: number; durationBeats: number; hand: Hand };
-type TimedNote = Note & { start: number; duration: number; played?: boolean };
+type LabelMode = 'name' | 'number';
+type Note = { pitch: number; start: number; duration: number; beat: number; durationBeats: number; hand: Hand };
+type TimedNote = Note & { played?: boolean };
+type TempoPoint = { beat: number; time: number; bpm: number };
 const START_MIDI = 21, END_MIDI = 108;
 const whitePitch = (pitch: number) => [0, 2, 4, 5, 7, 9, 11].includes(pitch % 12);
 const PITCH_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
@@ -48,14 +50,15 @@ function recognizeChord(activePitches: Set<number>): string | null {
 }
 
 const formatTime = (seconds: number) => `${Math.floor(seconds / 60).toString().padStart(2, '0')}:${Math.floor(seconds % 60).toString().padStart(2, '0')}`;
+const pitchLabel = (pitch: number, mode: LabelMode, keySignature: string) => mode === 'name' ? PITCH_NAMES[pitch % 12] : numberForPitch(pitch, keySignature).text;
 
 function demoNotes(): Note[] {
   const chords = [[48, 55, 60, 63], [44, 51, 56, 60], [46, 53, 58, 62], [43, 50, 55, 59]];
   const notes: Note[] = [];
   for (let i = 0; i < 12; i++) {
     const chord = chords[i % chords.length], time = 1 + i * 2;
-    chord.forEach((pitch, index) => notes.push({ pitch, beat: (time + index * 0.05) * 92 / 60, durationBeats: 1.8 * 92 / 60, hand: 'left' }));
-    [chord[3] + 12, chord[2] + 12, chord[3] + 12, chord[1] + 12].forEach((pitch, index) => notes.push({ pitch, beat: (time + index * .5) * 92 / 60, durationBeats: .38 * 92 / 60, hand: 'right' }));
+    chord.forEach((pitch, index) => notes.push({ pitch, start: time + index * 0.05, duration: 1.8, beat: (time + index * 0.05) * 92 / 60, durationBeats: 1.8 * 92 / 60, hand: 'left' }));
+    [chord[3] + 12, chord[2] + 12, chord[3] + 12, chord[1] + 12].forEach((pitch, index) => notes.push({ pitch, start: time + index * .5, duration: .38, beat: (time + index * .5) * 92 / 60, durationBeats: .38 * 92 / 60, hand: 'right' }));
   }
   return notes;
 }
@@ -63,8 +66,10 @@ function demoNotes(): Note[] {
 function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null), playbackRafRef = useRef<number>(), audioRef = useRef<AudioContext>(), pianoRef = useRef<SplendidGrandPiano>(), pianoLoadingRef = useRef(false);
   const [notes, setNotes] = useState<Note[]>(demoNotes), [playing, setPlaying] = useState(false), [bpm, setBpm] = useState(92), [keySignature, setKeySignature] = useState('C:major'), [volume, setVolume] = useState(72), [muted, setMuted] = useState(false), [gridDelay, setGridDelay] = useState(0), [elapsed, setElapsed] = useState(0), [loadedName, setLoadedName] = useState('Demo arrangement'), [chordName, setChordName] = useState<string | null>(null), [viewMode, setViewMode] = useState<'roll' | 'score'>('roll');
+  const [tempoMap, setTempoMap] = useState<TempoPoint[]>([{ beat: 0, time: 0, bpm: 92 }]);
+  const [labelMode, setLabelMode] = useState<LabelMode>('name');
   const startRef = useRef(0), pausedRef = useRef(0), chordRef = useRef<string | null>(null);
-  const timedNotes = useMemo<TimedNote[]>(() => notes.map(note => ({ ...note, start: note.beat * 60 / bpm, duration: note.durationBeats * 60 / bpm, played: note.beat < pausedRef.current * bpm / 60 })), [notes, bpm]);
+  const timedNotes = useMemo<TimedNote[]>(() => notes.map(note => ({ ...note, played: note.start < pausedRef.current })), [notes]);
   const notesRef = useRef<TimedNote[]>(timedNotes); notesRef.current = timedNotes;
   const elapsedRef = useRef(elapsed); elapsedRef.current = elapsed;
   const duration = Math.max(0, ...timedNotes.map(n => n.start + n.duration));
@@ -108,7 +113,7 @@ function App() {
     let width = 0, height = 0, keys: Record<number, { x: number; w: number; h: number; black: boolean }> = {};
     const resize = () => { width = canvas.clientWidth; height = canvas.clientHeight; const dpr = devicePixelRatio || 1; canvas.width = width * dpr; canvas.height = height * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); const keyH = Math.min(150, height * .2); const whiteCount = Array.from({ length: END_MIDI - START_MIDI + 1 }, (_, i) => START_MIDI + i).filter(whitePitch).length; const ww = width / whiteCount; let x = 0; keys = {}; for (let p = START_MIDI; p <= END_MIDI; p++) if (whitePitch(p)) { keys[p] = { x, w: ww, h: keyH, black: false }; x += ww; } for (let p = START_MIDI; p <= END_MIDI; p++) if (!whitePitch(p)) { const prev = keys[p - 1]; if (prev) keys[p] = { x: prev.x + prev.w - ww * .325, w: ww * .65, h: keyH * .65, black: true }; } };
     const draw = (time: number) => { const keyH = Math.min(150, height * .2), bottom = height - keyH, pxPerSecond = 180, beatSpacing = pxPerSecond * 60 / bpm, gridPosition = time * pxPerSecond - gridDelay / 1000 * pxPerSecond, beatOffset = ((gridPosition % beatSpacing) + beatSpacing) % beatSpacing; ctx.fillStyle = '#080a0f'; ctx.fillRect(0, 0, width, height); ctx.strokeStyle = 'rgba(255,255,255,.055)'; ctx.lineWidth = 1; Object.values(keys).filter(k => !k.black).forEach(k => { ctx.beginPath(); ctx.moveTo(k.x, 0); ctx.lineTo(k.x, bottom); ctx.stroke(); }); for (let y = bottom + beatOffset; y > 0; y -= beatSpacing) { if (y <= bottom) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke(); } }
-      const active = new Set<number>(); notesRef.current.forEach(n => { const on = time >= n.start && time <= n.start + n.duration; if (on) active.add(n.pitch); const yBottom = bottom - (n.start - time) * pxPerSecond, yTop = yBottom - n.duration * pxPerSecond, key = keys[n.pitch]; if (!key || yBottom < 0 || yTop > bottom) return; const top = Math.max(0, yTop), h = Math.min(bottom, yBottom) - top; if (h <= 0) return; ctx.fillStyle = n.hand === 'left' ? '#ff6b5f' : '#ffab57'; ctx.shadowBlur = on ? 20 : 8; ctx.shadowColor = ctx.fillStyle; ctx.beginPath(); ctx.roundRect(key.x + 2, top, key.w - 4, h, 4); ctx.fill(); ctx.shadowBlur = 0; });
+      const active = new Set<number>(); notesRef.current.forEach(n => { const on = time >= n.start && time <= n.start + n.duration; if (on) active.add(n.pitch); const yBottom = bottom - (n.start - time) * pxPerSecond, yTop = yBottom - n.duration * pxPerSecond, key = keys[n.pitch]; if (!key || yBottom < 0 || yTop > bottom) return; const top = Math.max(0, yTop), h = Math.min(bottom, yBottom) - top; if (h <= 0) return; ctx.fillStyle = n.hand === 'left' ? '#ff6b5f' : '#ffab57'; ctx.shadowBlur = on ? 20 : 8; ctx.shadowColor = ctx.fillStyle; ctx.beginPath(); ctx.roundRect(key.x + 2, top, key.w - 4, h, 4); ctx.fill(); ctx.shadowBlur = 0; if (time < n.start) { const label = pitchLabel(n.pitch, labelMode, keySignature); const fontSize = Math.max(6, Math.min(9, key.w * .72)); ctx.font = `600 ${fontSize}px 'DM Mono'`; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.fillStyle = '#171419'; ctx.fillText(label, key.x + key.w / 2, yBottom - 3, Math.max(6, key.w - 4)); } });
       const recognizedChord = recognizeChord(active);
       if (recognizedChord !== chordRef.current) { chordRef.current = recognizedChord; setChordName(recognizedChord); }
       Object.entries(keys).filter(([, k]) => !k.black).forEach(([p, k]) => { ctx.fillStyle = active.has(+p) ? '#ff6b5f' : '#e9ebef'; ctx.fillRect(k.x, bottom, k.w, k.h); ctx.strokeStyle = '#15171c'; ctx.strokeRect(k.x, bottom, k.w, k.h); }); Object.entries(keys).filter(([, k]) => k.black).forEach(([p, k]) => { ctx.fillStyle = active.has(+p) ? '#ff6b5f' : '#1b1e26'; ctx.fillRect(k.x, bottom, k.w, k.h); }); };
@@ -116,12 +121,12 @@ function App() {
     const loop = () => { draw(elapsedRef.current); drawRaf = requestAnimationFrame(loop); };
     resize(); window.addEventListener('resize', resize); loop();
     return () => { cancelAnimationFrame(drawRaf); window.removeEventListener('resize', resize); };
-  }, [bpm, gridDelay, viewMode]);
+  }, [bpm, gridDelay, viewMode, labelMode, keySignature]);
   const toggle = () => { if (playing) { pausedRef.current = Math.min(duration, pausedRef.current + (performance.now() - startRef.current) / 1000); elapsedRef.current = pausedRef.current; setElapsed(pausedRef.current); setPlaying(false); } else { if (pausedRef.current >= duration) { pausedRef.current = 0; elapsedRef.current = 0; setElapsed(0); notesRef.current.forEach(note => { note.played = false; }); } const ctx = audioRef.current ?? new AudioContext(); audioRef.current = ctx; void ctx.resume(); if (!pianoRef.current && !pianoLoadingRef.current) { pianoLoadingRef.current = true; const piano = new SplendidGrandPiano(ctx, { notesToLoad: { notes: Array.from({ length: END_MIDI - START_MIDI + 1 }, (_, i) => START_MIDI + i), velocityRange: [1, 127] } }); void piano.load.then(() => { pianoRef.current = piano; }).catch(() => undefined).finally(() => { pianoLoadingRef.current = false; }); } startRef.current = performance.now(); setPlaying(true); } };
   const seek = (time: number) => { pausedRef.current = time; startRef.current = performance.now(); setElapsed(time); notesRef.current.forEach(note => { note.played = note.start < time; }); };
   const reset = () => { pausedRef.current = 0; setElapsed(0); setPlaying(false); notesRef.current.forEach(n => { n.played = false; }); };
-  const changeBpm = (nextBpm: number) => { const value = Math.max(30, Math.min(300, nextBpm)); const currentBeat = elapsed * bpm / 60; const nextElapsed = currentBeat * 60 / value; pausedRef.current = nextElapsed; startRef.current = performance.now(); setElapsed(nextElapsed); setBpm(value); };
-  const upload = async (file: File) => { const midi = new Midi(await file.arrayBuffer()); const noteTracks = midi.tracks.filter(track => track.notes.length); const ppq = midi.header.ppq; const parsed: Note[] = noteTracks.flatMap(track => track.notes.map(n => ({ pitch: n.midi, beat: n.ticks / ppq, durationBeats: n.durationTicks / ppq, hand: (track.channel % 2 ? 'right' : 'left') as Hand }))); if (parsed.length) { const midiBpm = midi.header.tempos[0]?.bpm; if (midiBpm) setBpm(Math.round(midiBpm)); const midiKey = [...midi.header.keySignatures].sort((a, b) => a.ticks - b.ticks)[0]; setKeySignature(midiKey ? `${midiKey.key}:${midiKey.scale}` : 'C:major'); setNotes(parsed); setLoadedName(file.name); reset(); } };
+  const changeBpm = (nextBpm: number) => setBpm(Math.max(30, Math.min(300, nextBpm)));
+  const upload = async (file: File) => { const midi = new Midi(await file.arrayBuffer()); const noteTracks = midi.tracks.filter(track => track.notes.length); const ppq = midi.header.ppq; const parsed: Note[] = noteTracks.flatMap(track => track.notes.map(n => ({ pitch: n.midi, start: n.time, duration: n.duration, beat: n.ticks / ppq, durationBeats: n.durationTicks / ppq, hand: (track.channel % 2 ? 'right' : 'left') as Hand }))); if (parsed.length) { const midiBpm = midi.header.tempos[0]?.bpm ?? 120; setBpm(Math.round(midiBpm)); const parsedTempoMap = midi.header.tempos.length ? midi.header.tempos.map(tempo => ({ beat: tempo.ticks / ppq, time: tempo.time ?? midi.header.ticksToSeconds(tempo.ticks), bpm: tempo.bpm })) : [{ beat: 0, time: 0, bpm: midiBpm }]; setTempoMap(parsedTempoMap); const midiKey = [...midi.header.keySignatures].sort((a, b) => a.ticks - b.ticks)[0]; setKeySignature(midiKey ? `${midiKey.key}:${midiKey.scale}` : 'C:major'); setNotes(parsed); setLoadedName(file.name); reset(); } };
   return (
     <main className="app">
       <header className="topbar">
@@ -139,7 +144,7 @@ function App() {
             <canvas ref={canvasRef} />
             <div className={`chord-display ${chordName ? 'visible' : ''}`} aria-live="polite">{chordName ?? ''}</div>
             <input className="roll-scrollbar" type="range" min="0" max={duration} step="0.01" value={Math.min(elapsed, duration)} onChange={event => seek(+event.target.value)} aria-label="Scroll piano visualizer playback position" />
-          </> : <JianpuView notes={timedNotes} elapsed={elapsed} bpm={bpm} keySignature={keySignature} />}
+          </> : <JianpuView notes={timedNotes} elapsed={elapsed} tempoMap={tempoMap} keySignature={keySignature} />}
           <div className="canvas-label"><span>{viewMode === 'roll' ? 'LIVE VISUALIZER' : 'MIDI 简谱 · NUMBERED NOTATION'}</span><div className="view-switch" role="group" aria-label="Visualization mode"><button className={viewMode === 'roll' ? 'selected' : ''} onClick={() => setViewMode('roll')} aria-label="Piano roll view" title="Piano roll view"><Piano size={15} /></button><button className={viewMode === 'score' ? 'selected' : ''} onClick={() => setViewMode('score')} aria-label="MIDI numbered notation view" title="MIDI numbered notation view"><ListMusic size={15} /></button></div></div>
         </div>
         <aside className="controls">
@@ -158,6 +163,13 @@ function App() {
             <select id="key-signature" value={keySignature} onChange={e => setKeySignature(e.target.value)}>
               {KEY_SIGNATURE_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
+          </div>
+          <div className="label-control">
+            <span>NOTE LABELS</span>
+            <div className="label-switch" role="group" aria-label="Piano roll note label format">
+              <button className={labelMode === 'name' ? 'selected' : ''} onClick={() => setLabelMode('name')} aria-pressed={labelMode === 'name'}>C D E</button>
+              <button className={labelMode === 'number' ? 'selected' : ''} onClick={() => setLabelMode('number')} aria-pressed={labelMode === 'number'}>1 2 3</button>
+            </div>
           </div>
           <div className="control tempo-control">
             <div><span>TEMPO</span><b>{bpm}<small>BPM</small></b></div>

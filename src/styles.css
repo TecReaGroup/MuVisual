@@ -14,6 +14,13 @@
 .key-control select { min-width:112px; height:38px; padding:0 10px; border:1px solid #343946; border-radius:0; background:#151922; color:#f3f4f6; font:11px 'DM Mono'; cursor:pointer; color-scheme:dark; transition:border-color 180ms ease, background-color 180ms ease; }
 .key-control select:hover { border-color:#ff6b5f; background:#191e28; }
 .key-control select:focus-visible { outline:2px solid #ffab57; outline-offset:2px; }
+.label-control { min-height:58px; border-top:1px solid #262a34; display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.label-control > span { color:#7f8794; font:10px 'DM Mono'; letter-spacing:.08em; }
+.label-switch { display:grid; grid-template-columns:1fr 1fr; width:118px; height:32px; }
+.label-switch button { min-width:0; border:1px solid #343946; background:#151922; color:#7f8794; font:9px 'DM Mono'; padding:0 7px; }
+.label-switch button + button { border-left:0; }
+.label-switch button.selected { background:#ff6b5f; border-color:#ff6b5f; color:#171419; }
+.label-switch button:focus-visible { position:relative; z-index:1; outline:2px solid #ffab57; outline-offset:2px; }
 .tempo-control .step-actions button { flex:1; min-height:36px; margin-top:14px; display:flex; align-items:center; justify-content:center; gap:6px; border:1px solid #3b3032; background:#151922; color:#ff9a91; font:10px 'DM Mono'; letter-spacing:.07em; }
 .tempo-control .step-actions button:hover:not(:disabled) { border-color:#ff6b5f; }
 .tempo-control .step-actions button:focus-visible { outline:2px solid #ffab57; outline-offset:2px; }
@@ -25,7 +32,7 @@ footer { flex:0 0 40px; }
   .eyebrow { margin-bottom:16px; }
   .progress-control { margin:-4px 0 16px; }
   .transport { margin-bottom:22px; }
-  .key-control { min-height:48px; }
+  .key-control, .label-control { min-height:48px; }
   .key-control select { height:34px; }
   .control { padding:12px 0 14px; }
   input[type=range] { margin-top:12px; }
@@ -38,7 +45,8 @@ footer { flex:0 0 40px; }
   .eyebrow { margin-bottom:10px; }
   .progress-control { margin:0 0 10px; }
   .transport { margin-bottom:12px; }
-  .key-control { min-height:42px; }
+  .key-control, .label-control { min-height:42px; }
+  .label-switch { height:28px; }
   .key-control select { height:30px; }
   .control { padding:8px 0 10px; }
   input[type=range] { margin-top:8px; }
