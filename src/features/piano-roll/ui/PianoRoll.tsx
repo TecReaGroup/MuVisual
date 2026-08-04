@@ -74,7 +74,7 @@ export function PianoRoll({
     const resize = () => {
       width = canvas.clientWidth;
       height = canvas.clientHeight;
-      const dpr = devicePixelRatio || 1;
+      const dpr = Math.min(devicePixelRatio || 1, 1.5);
       canvas.width = width * dpr;
       canvas.height = height * dpr;
       context.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -127,22 +127,23 @@ export function PianoRoll({
       context.fillRect(0, 0, width, height);
       context.strokeStyle = 'rgba(255,255,255,.055)';
       context.lineWidth = 1;
+      context.beginPath();
       whiteKeys.forEach(([, key]) => {
-        context.beginPath();
         context.moveTo(key.x, 0);
         context.lineTo(key.x, bottom);
-        context.stroke();
       });
       for (let y = bottom + beatOffset; y > 0; y -= beatSpacing) {
         if (y <= bottom) {
-          context.beginPath();
           context.moveTo(0, y);
           context.lineTo(width, y);
-          context.stroke();
         }
       }
+      context.stroke();
 
       const activePitches = new Set<number>();
+      let currentFont = '';
+      context.textAlign = 'center';
+      context.textBaseline = 'bottom';
       const viewEnd = time + bottom / pixelsPerSecond;
       const firstVisible = lowerBound(notesRef.current, time - maxNoteDuration, true);
       const afterLastVisible = lowerBound(notesRef.current, viewEnd, false);
@@ -161,24 +162,18 @@ export function PianoRoll({
         if (barHeight <= 0) continue;
 
         context.fillStyle = note.hand === 'left' ? '#ff6b5f' : '#ffab57';
-        context.shadowBlur = active ? 10 : 0;
-        context.shadowColor = context.fillStyle;
-        context.beginPath();
-        context.roundRect(key.x + 2, top, key.w - 4, barHeight, 4);
-        context.fill();
-        context.shadowBlur = 0;
+        context.fillRect(key.x + 2, top, Math.max(1, key.w - 4), barHeight);
 
-        if (time < noteEnd) {
+        if (time < noteEnd && barHeight >= 12) {
           const label = pitchLabel(note.pitch, labelMode, keySignature);
           const fontSize = Math.max(6, Math.min(9, key.w * 0.72));
-          context.font = `600 ${fontSize}px 'DM Mono'`;
-          context.textAlign = 'center';
-          context.textBaseline = 'bottom';
+          const font = `600 ${fontSize}px 'DM Mono'`;
+          if (font !== currentFont) {
+            context.font = font;
+            currentFont = font;
+          }
           context.fillStyle = '#ffffff';
-          context.shadowColor = 'rgba(8,10,15,.75)';
-          context.shadowBlur = 2;
           context.fillText(label, key.x + key.w / 2, visibleBottom - 3, Math.max(6, key.w - 4));
-          context.shadowBlur = 0;
         }
       }
 
@@ -205,7 +200,7 @@ export function PianoRoll({
     let lastPlaybackTime = Number.NaN;
     const loop = (frameTime: number) => {
       const playbackTime = getElapsed();
-      if (needsRedraw || (frameTime - lastFrameTime >= 1000 / 30 && playbackTime !== lastPlaybackTime)) {
+      if (needsRedraw || (frameTime - lastFrameTime >= 15 && playbackTime !== lastPlaybackTime)) {
         draw(playbackTime);
         lastFrameTime = frameTime;
         lastPlaybackTime = playbackTime;

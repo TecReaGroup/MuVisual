@@ -1,4 +1,4 @@
-import { ListMusic, PanelRightClose, PanelRightOpen, Piano } from 'lucide-react';
+import { ArrowLeft, ListMusic, PanelRightClose, PanelRightOpen, Piano } from 'lucide-react';
 import { useState } from 'react';
 import { createDemoNotes, type LabelMode, type Note, type ViewMode } from '../../entities/music';
 import { MidiImportButton, type ImportedMidi } from '../../features/midi-import';
@@ -6,14 +6,19 @@ import { PianoRoll } from '../../features/piano-roll';
 import { PlaybackControls, usePlayback } from '../../features/playback';
 import { JianpuView } from '../../features/score';
 
-export function StudioPage() {
-  const [notes, setNotes] = useState<Note[]>(createDemoNotes);
-  const [bpm, setBpm] = useState(92);
-  const [keySignature, setKeySignature] = useState('C:major');
+type StudioPageProps = {
+  initialMidi?: ImportedMidi;
+  onBack?: () => void;
+};
+
+export function StudioPage({ initialMidi, onBack }: StudioPageProps) {
+  const [notes, setNotes] = useState<Note[]>(() => initialMidi?.notes ?? createDemoNotes());
+  const [bpm, setBpm] = useState(initialMidi?.bpm ?? 92);
+  const [keySignature, setKeySignature] = useState(initialMidi?.keySignature ?? 'C:major');
   const [volume, setVolume] = useState(72);
   const [muted, setMuted] = useState(false);
-  const [gridDelay, setGridDelay] = useState(0);
-  const [loadedName, setLoadedName] = useState('Demo arrangement');
+  const [gridDelay, setGridDelay] = useState(initialMidi?.backgroundDelayMs ?? 0);
+  const [loadedName, setLoadedName] = useState(initialMidi?.name ?? 'Demo arrangement');
   const [labelMode, setLabelMode] = useState<LabelMode>('name');
   const [viewMode, setViewMode] = useState<ViewMode>('roll');
   const [controlsCollapsed, setControlsCollapsed] = useState(true);
@@ -31,7 +36,8 @@ export function StudioPage() {
 
   return <main className="app">
     <header className="topbar">
-      <div className="brand"><span className="brand-mark">MV</span><div><strong>MuVisual</strong><span>PIANO ROLL STUDIO</span></div></div>
+      {onBack ? <button className="brand brand-back" type="button" onClick={onBack} aria-label="Back to library"><ArrowLeft size={17} /><span className="brand-mark">MV</span><span><strong>MuVisual</strong><small>PIANO ROLL STUDIO</small></span></button>
+        : <div className="brand"><span className="brand-mark">MV</span><div><strong>MuVisual</strong><span>PIANO ROLL STUDIO</span></div></div>}
       <div className="session"><span className="status-dot" />SESSION 04 <span className="divider" />{loadedName}</div>
       <MidiImportButton onImport={handleImport} />
     </header>

@@ -32,3 +32,8 @@ test-results/
 .DS_Store
 Thumbs.db
 Desktop.ini
+
+*.mid
+*.mp3
+*.wav
+*.m4a
