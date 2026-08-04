@@ -14,5 +14,5 @@ export function App() {
 
   return activeMidi
     ? <StudioPage initialMidi={activeMidi} onBack={() => setActiveMidi(null)} />
-    : <LibraryPage onOpenMidi={setActiveMidi} />;
+    : <LibraryPage onOpenMidi={setActiveMidi} onHome={() => setActiveMidi(null)} />;
 }

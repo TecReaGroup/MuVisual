@@ -20,9 +20,10 @@ function formatSize(bytes: number) {
 
 type LibraryPageProps = {
   onOpenMidi: (midi: ImportedMidi) => void;
+  onHome?: () => void;
 };
 
-export function LibraryPage({ onOpenMidi }: LibraryPageProps) {
+export function LibraryPage({ onOpenMidi, onHome }: LibraryPageProps) {
   const [items, setItems] = useState<LibraryItem[]>([]);
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
@@ -70,7 +71,7 @@ export function LibraryPage({ onOpenMidi }: LibraryPageProps) {
 
   return <main className="library-app">
     <header className="library-header">
-      <button className="library-brand" type="button" aria-label="MuVisual home">
+      <button className="library-brand" type="button" aria-label="MuVisual home" onClick={onHome}>
         <span className="brand-symbol"><AudioLines size={18} /></span>
         <span><strong>MuVisual</strong><small>MAKE MUSIC VISIBLE</small></span>
       </button>

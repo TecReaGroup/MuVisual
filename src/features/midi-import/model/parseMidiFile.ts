@@ -44,8 +44,6 @@ export async function parseMidiFile(file: File): Promise<ImportedMidi | null> {
     durationBeats: note.durationTicks / ppq,
     hand: (track.channel % 2 ? 'right' : 'left') as Hand,
   })));
-  if (!notes.length) return null;
-
   const midiBpm = midi.header.tempos[0]?.bpm ?? 120;
   const tempoMap = midi.header.tempos.length
     ? midi.header.tempos.map(tempo => ({
