@@ -1,52 +1,11 @@
 import { useEffect, useMemo, useRef } from 'react';
-
-export type ScoreNote = {
-  pitch: number;
-  start: number;
-  duration: number;
-  beat: number;
-  durationBeats: number;
-  hand: 'left' | 'right';
-};
-export type TempoPoint = { beat: number; time: number; bpm: number };
-
-const KEY_ROOTS: Record<string, number> = {
-  C: 0, G: 7, D: 2, A: 9, E: 4, B: 11, F: 5,
-  'F#': 6, 'C#': 1, Gb: 6, Db: 1, Ab: 8, Eb: 3, Bb: 10, Cb: 11,
-};
-
-function parseKey(keySignature: string) {
-  const [name = 'C', scale = 'major'] = keySignature.split(':');
-  return { name, root: KEY_ROOTS[name] ?? 0, scale };
-}
-
-export function numberForPitch(pitch: number, keySignature: string) {
-  const { name, root, scale } = parseKey(keySignature);
-  const intervals = scale === 'minor' ? [0, 2, 3, 5, 7, 8, 10] : [0, 2, 4, 5, 7, 9, 11];
-  const relative = (pitch - 60 - root + 120) % 12;
-  let degree = intervals.indexOf(relative);
-  let accidental = '';
-
-  if (degree < 0) {
-    const preferFlat = name.includes('b') || ['F', 'Bb', 'Eb', 'Ab', 'Db', 'Gb', 'Cb'].includes(name);
-    const candidates = intervals.flatMap((interval, index) => [
-      { index, offset: relative - interval },
-      { index, offset: relative - interval - 12 },
-      { index, offset: relative - interval + 12 },
-    ]).filter(candidate => Math.abs(candidate.offset) === 1);
-    const chosen = candidates.find(candidate => preferFlat ? candidate.offset < 0 : candidate.offset > 0) ?? candidates[0];
-    degree = chosen?.index ?? 0;
-    accidental = chosen?.offset && chosen.offset < 0 ? 'b' : '#';
-  }
-
-  const octave = Math.max(-2, Math.min(2, Math.floor((pitch - (60 + root)) / 12)));
-  return { text: `${accidental}${degree + 1}`, octave };
-}
+import { numberForPitch } from '../../../entities/music/lib/pitch';
+import type { Note, TempoPoint } from '../../../entities/music/model/types';
 
 type Voice = 'high' | 'low';
-type QuantizedNotes = Map<string, ScoreNote>;
+type QuantizedNotes = Map<string, Note>;
 
-function quantizeNotes(notes: ScoreNote[]) {
+function quantizeNotes(notes: Note[]) {
   const result: QuantizedNotes = new Map();
   notes.forEach(note => {
     const voice: Voice = note.pitch >= 60 ? 'high' : 'low';
@@ -58,12 +17,7 @@ function quantizeNotes(notes: ScoreNote[]) {
   return result;
 }
 
-function Beat({ beat, voice, notes, keySignature }: {
-  beat: number;
-  voice: Voice;
-  notes: QuantizedNotes;
-  keySignature: string;
-}) {
+function Beat({ beat, voice, notes, keySignature }: { beat: number; voice: Voice; notes: QuantizedNotes; keySignature: string }) {
   const slots = Array.from({ length: 4 }, (_, slot) => notes.get(`${voice}:${beat * 4 + slot}`));
   const onsets = slots.flatMap((note, slot) => note ? [slot] : []);
   const rhythm = !onsets.length ? 'empty' : onsets.some(slot => slot % 2 === 1) ? 'sixteenth' : onsets.includes(2) ? 'eighth' : 'quarter';
@@ -109,12 +63,7 @@ function beatAtTime(time: number, tempoMap: TempoPoint[]) {
   return point.beat + (time - point.time) * point.bpm / 60;
 }
 
-export function JianpuView({ notes, elapsed, tempoMap, keySignature }: {
-  notes: ScoreNote[];
-  elapsed: number;
-  tempoMap: TempoPoint[];
-  keySignature: string;
-}) {
+export function JianpuView({ notes, elapsed, tempoMap, keySignature }: { notes: Note[]; elapsed: number; tempoMap: TempoPoint[]; keySignature: string }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const quantized = useMemo(() => quantizeNotes(notes), [notes]);
   const lastBeat = Math.max(0, ...notes.map(note => note.beat));
