@@ -29,7 +29,7 @@ export function usePlayback(notes: Note[], muted: boolean, volume: number) {
   const nextNoteIndexRef = useRef(0);
   const playbackRafRef = useRef<number>();
   const toggleRef = useRef<() => void>(() => undefined);
-  const { getAudioTime, playNote, prepare, stopAll } = usePianoAudio(muted, volume);
+  const { getAudioTime, loadStatus, playNote, prepare, stopAll } = usePianoAudio(muted, volume);
   const sortedNotes = useMemo(() => [...notes].sort((first, second) => first.start - second.start), [notes]);
   const notesRef = useRef(sortedNotes);
   notesRef.current = sortedNotes;
@@ -126,12 +126,25 @@ export function usePlayback(notes: Note[], muted: boolean, volume: number) {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.code !== 'Space' || event.repeat) return;
       const target = event.target as HTMLElement | null;
-      if (target?.matches('input, select, textarea, button, [contenteditable="true"]')) return;
+      const isTextEntry = target?.matches([
+        'textarea',
+        '[contenteditable="true"]',
+        'input:not([type])',
+        'input[type="text"]',
+        'input[type="search"]',
+        'input[type="email"]',
+        'input[type="password"]',
+        'input[type="url"]',
+        'input[type="tel"]',
+        'input[type="number"]',
+      ].join(','));
+      if (isTextEntry) return;
       event.preventDefault();
+      event.stopPropagation();
       toggleRef.current();
     };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
   }, []);
 
   const seek = useCallback((time: number) => {
@@ -157,5 +170,5 @@ export function usePlayback(notes: Note[], muted: boolean, volume: number) {
 
   const getElapsed = useCallback(() => elapsedRef.current, []);
 
-  return { duration, elapsed, getElapsed, playing, reset, seek, toggle };
+  return { duration, elapsed, getElapsed, loadStatus, playing, reset, seek, toggle };
 }

@@ -1,18 +1,87 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { SplendidGrandPiano } from 'smplr';
 import { END_MIDI, START_MIDI } from '../../../entities/music/lib/pitch';
 
+type LoadStatus = 'loading' | 'ready' | 'error';
+
+const sharedAudio: {
+  context?: AudioContext;
+  output?: GainNode;
+  piano?: SplendidGrandPiano;
+  load?: Promise<boolean>;
+  status: LoadStatus;
+  listeners: Set<() => void>;
+} = {
+  status: 'loading',
+  listeners: new Set(),
+};
+
+function notifySharedStatus(status: LoadStatus) {
+  sharedAudio.status = status;
+  sharedAudio.listeners.forEach(listener => listener());
+}
+
+function getSharedAudioContext() {
+  if (sharedAudio.context) return sharedAudio.context;
+
+  const context = new AudioContext();
+  const output = context.createGain();
+  const compressor = context.createDynamicsCompressor();
+  output.gain.value = 0.72;
+  compressor.threshold.value = -10;
+  compressor.knee.value = 24;
+  compressor.ratio.value = 4;
+  compressor.attack.value = 0.008;
+  compressor.release.value = 0.2;
+  output.connect(compressor).connect(context.destination);
+  sharedAudio.context = context;
+  sharedAudio.output = output;
+  return context;
+}
+
+export function preloadPiano() {
+  const context = getSharedAudioContext();
+  if (sharedAudio.piano) return Promise.resolve(true);
+  if (sharedAudio.load) return sharedAudio.load;
+
+  notifySharedStatus('loading');
+  const piano = new SplendidGrandPiano(context, {
+    destination: sharedAudio.output,
+    notesToLoad: {
+      notes: Array.from({ length: END_MIDI - START_MIDI + 1 }, (_, index) => START_MIDI + index),
+      velocityRange: [1, 127],
+    },
+  });
+  sharedAudio.load = piano.load
+    .then(() => {
+      sharedAudio.piano = piano;
+      notifySharedStatus('ready');
+      return true;
+    })
+    .catch(() => {
+      sharedAudio.load = undefined;
+      notifySharedStatus('error');
+      return false;
+    });
+  return sharedAudio.load;
+}
+
 export function usePianoAudio(muted: boolean, volume: number) {
-  const audioRef = useRef<AudioContext>();
-  const pianoRef = useRef<SplendidGrandPiano>();
-  const pianoLoadRef = useRef<Promise<boolean>>();
-  const outputRef = useRef<GainNode>();
-  const compressorRef = useRef<DynamicsCompressorNode>();
+  const [loadStatus, setLoadStatus] = useState<LoadStatus>(sharedAudio.status);
   const activeVoicesRef = useRef(0);
   const activeStopsRef = useRef(new Set<() => void>());
 
+  useEffect(() => {
+    const updateStatus = () => setLoadStatus(sharedAudio.status);
+    sharedAudio.listeners.add(updateStatus);
+    updateStatus();
+    return () => sharedAudio.listeners.delete(updateStatus);
+  }, []);
+
+  const getAudioContext = useCallback(() => getSharedAudioContext(), []);
+
   const updateHeadroom = useCallback((context: AudioContext) => {
-    const output = outputRef.current;
+    const output = sharedAudio.output;
     if (!output) return;
     const voiceCount = Math.max(1, activeVoicesRef.current);
     const targetGain = Math.max(0.16, 0.72 / Math.sqrt(voiceCount));
@@ -32,65 +101,31 @@ export function usePianoAudio(muted: boolean, volume: number) {
     };
   }, [updateHeadroom]);
 
-  const getAudioContext = useCallback(() => {
-    const context = audioRef.current ?? new AudioContext();
-    audioRef.current = context;
-    if (!outputRef.current) {
-      const output = context.createGain();
-      const compressor = context.createDynamicsCompressor();
-      // Keep dense chords below the digital ceiling while preserving their attack.
-      output.gain.value = 0.72;
-      compressor.threshold.value = -10;
-      compressor.knee.value = 24;
-      compressor.ratio.value = 4;
-      compressor.attack.value = 0.008;
-      compressor.release.value = 0.2;
-      output.connect(compressor).connect(context.destination);
-      outputRef.current = output;
-      compressorRef.current = compressor;
-    }
-    return context;
-  }, []);
+  const loadPiano = useCallback(() => preloadPiano(), []);
 
   const prepare = useCallback(async () => {
     const context = getAudioContext();
-    await context.resume();
-    if (pianoRef.current) return true;
-    if (pianoLoadRef.current) return pianoLoadRef.current;
+    const [loaded] = await Promise.all([loadPiano(), context.resume()]);
+    return loaded;
+  }, [getAudioContext, loadPiano]);
 
-    const piano = new SplendidGrandPiano(context, {
-      destination: outputRef.current,
-      notesToLoad: {
-        notes: Array.from({ length: END_MIDI - START_MIDI + 1 }, (_, index) => START_MIDI + index),
-        velocityRange: [1, 127],
-      },
-    });
-    const load = piano.load
-      .then(() => {
-        pianoRef.current = piano;
-        return true;
-      })
-      .catch(() => {
-        pianoLoadRef.current = undefined;
-        return false;
-      });
-    pianoLoadRef.current = load;
-    return load;
-  }, [getAudioContext]);
+  useEffect(() => {
+    void loadPiano();
+  }, [loadPiano]);
 
   const playNote = useCallback((pitch: number, length: number, startTime?: number) => {
     if (muted) return;
     const context = getAudioContext();
     const safeLength = Math.max(0.01, length);
     const noteStart = Math.max(context.currentTime, startTime ?? context.currentTime);
-    if (pianoRef.current) {
+    if (sharedAudio.piano) {
       const endVoice = beginVoice(context);
       let stopNote = () => undefined;
       const cleanup = () => {
         activeStopsRef.current.delete(stopNote);
         endVoice();
       };
-      const stop = pianoRef.current.start({
+      const stop = sharedAudio.piano.start({
         note: pitch,
         time: noteStart,
         duration: safeLength,
@@ -129,7 +164,7 @@ export function usePianoAudio(muted: boolean, volume: number) {
     gain.gain.linearRampToValueAtTime(peak, attackEnd);
     gain.gain.setValueAtTime(peak, releaseStart);
     gain.gain.linearRampToValueAtTime(0.0001, releaseEnd);
-    oscillator.connect(gain).connect(outputRef.current!);
+    oscillator.connect(gain).connect(sharedAudio.output!);
     oscillator.onended = () => {
       activeStopsRef.current.delete(stopNote);
       endVoice();
@@ -146,5 +181,10 @@ export function usePianoAudio(muted: boolean, volume: number) {
 
   const getAudioTime = useCallback(() => getAudioContext().currentTime, [getAudioContext]);
 
-  return { getAudioTime, playNote, prepare, stopAll };
+  useEffect(() => () => {
+    activeStopsRef.current.forEach(stop => stop());
+    activeStopsRef.current.clear();
+  }, []);
+
+  return { getAudioTime, loadStatus, playNote, prepare, stopAll };
 }

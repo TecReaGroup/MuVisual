@@ -1,4 +1,4 @@
-import { ArrowLeft, ListMusic, PanelRightClose, PanelRightOpen, Piano } from 'lucide-react';
+import { ArrowLeft, ListMusic, LoaderCircle, PanelRightClose, PanelRightOpen, Piano } from 'lucide-react';
 import { useState } from 'react';
 import { createDemoNotes, type LabelMode, type Note, type ViewMode } from '../../entities/music';
 import { MidiImportButton, type ImportedMidi } from '../../features/midi-import';
@@ -24,6 +24,11 @@ export function StudioPage({ initialMidi, onBack }: StudioPageProps) {
   const [controlsCollapsed, setControlsCollapsed] = useState(true);
   const [chordName, setChordName] = useState<string | null>(null);
   const playback = usePlayback(notes, muted, volume);
+  const loadStatusLabel = {
+    loading: '加载中',
+    ready: '已就绪',
+    error: '加载失败',
+  }[playback.loadStatus];
 
   const handleImport = (midi: ImportedMidi) => {
     setNotes(midi.notes);
@@ -38,7 +43,7 @@ export function StudioPage({ initialMidi, onBack }: StudioPageProps) {
     <header className="topbar">
       {onBack ? <button className="brand brand-back" type="button" onClick={onBack} aria-label="Back to library"><ArrowLeft size={17} /><span className="brand-mark">MV</span><span><strong>MuVisual</strong><small>PIANO ROLL STUDIO</small></span></button>
         : <div className="brand"><span className="brand-mark">MV</span><div><strong>MuVisual</strong><span>PIANO ROLL STUDIO</span></div></div>}
-      <div className="session"><span className="status-dot" />SESSION 04 <span className="divider" />{loadedName}</div>
+      <div className={`session timbre-status ${playback.loadStatus}`} role="status" aria-live="polite"><span className="status-dot" />MIDI 音色 · {loadStatusLabel} <span className="divider" />{loadedName}</div>
       <MidiImportButton onImport={handleImport} />
     </header>
     <section className={`workspace ${controlsCollapsed ? 'controls-collapsed' : ''}`}>
@@ -59,6 +64,11 @@ export function StudioPage({ initialMidi, onBack }: StudioPageProps) {
           </div>
         </div>
         {viewMode === 'roll' && <div className={`chord-display ${chordName ? 'visible' : ''}`} aria-live="polite">{chordName ?? ''}</div>}
+        {playback.loadStatus === 'loading' && <div className="audio-loading-overlay" role="status" aria-live="polite">
+          <LoaderCircle size={30} />
+          <strong>正在加载 MIDI 音色</strong>
+          <span>Splendid Grand Piano</span>
+        </div>}
       </div>
       <aside className={`controls ${controlsCollapsed ? 'collapsed' : ''}`}>
         <PlaybackControls
