@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { memo, useEffect, useMemo, useRef } from 'react';
 import { numberForPitch } from '../../../entities/music/lib/pitch';
 import type { Note, TempoPoint } from '../../../entities/music/model/types';
 
@@ -63,20 +63,73 @@ function beatAtTime(time: number, tempoMap: TempoPoint[]) {
   return point.beat + (time - point.time) * point.bpm / 60;
 }
 
-export function JianpuView({ notes, elapsed, tempoMap, keySignature }: { notes: Note[]; elapsed: number; tempoMap: TempoPoint[]; keySignature: string }) {
+type JianpuViewProps = {
+  getElapsed: () => number;
+  keySignature: string;
+  notes: Note[];
+  tempoMap: TempoPoint[];
+};
+
+export const JianpuView = memo(function JianpuView({ getElapsed, notes, tempoMap, keySignature }: JianpuViewProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const systemRefs = useRef<Array<HTMLElement | null>>([]);
+  const rowRefs = useRef<Array<HTMLDivElement | null>>([]);
+  const cursorRefs = useRef<Array<HTMLSpanElement | null>>([]);
   const quantized = useMemo(() => quantizeNotes(notes), [notes]);
   const lastBeat = Math.max(0, ...notes.map(note => note.beat));
   const totalMeasures = Math.max(1, Math.ceil((lastBeat + 2) / 4));
-  const currentBeat = Math.max(0, beatAtTime(elapsed, tempoMap));
-  const activeStep = Math.floor(currentBeat * 4);
   const systems = useMemo(() => Array.from({ length: Math.ceil(totalMeasures / 2) }, (_, system) =>
     [system * 2, system * 2 + 1].filter(measure => measure < totalMeasures)), [totalMeasures]);
 
   useEffect(() => {
-    const active = scrollRef.current?.querySelector<HTMLElement>('[data-active-system="true"]');
-    active?.scrollIntoView({ behavior: 'auto', block: 'nearest', inline: 'nearest' });
-  }, [Math.floor(activeStep / 32)]);
+    let animationFrame = 0;
+    let activeSystemIndex = -1;
+    let lastCursorX = Number.NaN;
+    const systemWidths = new Array(systems.length).fill(0);
+    const measureSystems = () => {
+      rowRefs.current.forEach((row, index) => { systemWidths[index] = row?.clientWidth ?? 0; });
+      lastCursorX = Number.NaN;
+    };
+    const resizeObserver = new ResizeObserver(measureSystems);
+    rowRefs.current.forEach(row => { if (row) resizeObserver.observe(row); });
+    measureSystems();
+
+    const drawCursor = () => {
+      const currentBeat = Math.max(0, beatAtTime(getElapsed(), tempoMap));
+      const nextSystemIndex = Math.max(0, Math.min(systems.length - 1, Math.floor(currentBeat / 8)));
+
+      if (nextSystemIndex !== activeSystemIndex) {
+        if (activeSystemIndex >= 0) {
+          systemRefs.current[activeSystemIndex]?.setAttribute('data-active-system', 'false');
+        }
+        activeSystemIndex = nextSystemIndex;
+        lastCursorX = Number.NaN;
+        const activeSystem = systemRefs.current[activeSystemIndex];
+        activeSystem?.setAttribute('data-active-system', 'true');
+        activeSystem?.scrollIntoView({ behavior: 'auto', block: 'nearest', inline: 'nearest' });
+      }
+
+      const system = systems[activeSystemIndex];
+      const cursor = cursorRefs.current[activeSystemIndex];
+      if (system && cursor) {
+        const systemStartBeat = system[0] * 4;
+        const systemBeats = system.length * 4;
+        const cursorPosition = Math.max(0, Math.min(1, (currentBeat - systemStartBeat) / systemBeats));
+        const cursorX = cursorPosition * systemWidths[activeSystemIndex] - 1;
+        if (cursorX !== lastCursorX) {
+          cursor.style.transform = `translate3d(${cursorX}px, 0, 0)`;
+          lastCursorX = cursorX;
+        }
+      }
+      animationFrame = requestAnimationFrame(drawCursor);
+    };
+
+    drawCursor();
+    return () => {
+      cancelAnimationFrame(animationFrame);
+      resizeObserver.disconnect();
+    };
+  }, [getElapsed, systems, tempoMap]);
 
   return <div className="score-stage" ref={scrollRef}>
     <div className="score-sheet">
@@ -84,24 +137,25 @@ export function JianpuView({ notes, elapsed, tempoMap, keySignature }: { notes: 
         <div><span>MIDI NUMBERED SCORE</span><strong>1 = {keySignature.replace(':', ' · ')}</strong></div>
         <div className="score-meta">16TH QUANTIZE · C4 VOICE SPLIT</div>
       </div>
-      {systems.map(system => {
-        const activeSystem = activeStep >= system[0] * 16 && activeStep < (system[system.length - 1] + 1) * 16;
-        const systemStartBeat = system[0] * 4;
-        const systemBeats = system.length * 4;
-        const cursorPosition = Math.max(0, Math.min(1, (currentBeat - systemStartBeat) / systemBeats));
-        return <section className="score-system" key={system[0]} data-active-system={activeSystem ? 'true' : 'false'}>
+      {systems.map((system, systemIndex) => {
+        return <section
+          className="score-system"
+          key={system[0]}
+          data-active-system="false"
+          ref={element => { systemRefs.current[systemIndex] = element; }}
+        >
           <div className="staff-labels"><span>HIGH</span><span>LOW</span></div>
-          <div className="score-rows">
+          <div className="score-rows" ref={element => { rowRefs.current[systemIndex] = element; }}>
             {(['high', 'low'] as const).map(voice => <div className="score-row" key={voice}>
               {system.map(measure => <div className="score-measure" key={measure}>
                 <span className="measure-number">{String(measure + 1).padStart(2, '0')}</span>
                 {Array.from({ length: 4 }, (_, beat) => <Beat key={beat} beat={measure * 4 + beat} voice={voice} notes={quantized} keySignature={keySignature} />)}
               </div>)}
             </div>)}
-            {activeSystem && <span className="score-cursor" style={{ left: `${cursorPosition * 100}%` }} aria-hidden="true" />}
+            <span className="score-cursor" ref={element => { cursorRefs.current[systemIndex] = element; }} aria-hidden="true" />
           </div>
         </section>;
       })}
     </div>
   </div>;
-}
+});

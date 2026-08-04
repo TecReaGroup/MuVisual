@@ -9,6 +9,7 @@ type PianoRollProps = {
   bpm: number;
   duration: number;
   elapsed: number;
+  getElapsed: () => number;
   gridDelay: number;
   keySignature: string;
   labelMode: LabelMode;
@@ -25,6 +26,7 @@ export function PianoRoll({
   bpm,
   duration,
   elapsed,
+  getElapsed,
   gridDelay,
   keySignature,
   labelMode,
@@ -33,10 +35,8 @@ export function PianoRoll({
   onSeek,
 }: PianoRollProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const elapsedRef = useRef(elapsed);
   const notesRef = useRef(notes);
   const chordRef = useRef<string | null>(null);
-  elapsedRef.current = elapsed;
   notesRef.current = notes;
 
   useEffect(() => {
@@ -171,7 +171,7 @@ export function PianoRoll({
 
     let drawRaf = 0;
     const loop = () => {
-      draw(elapsedRef.current);
+      draw(getElapsed());
       drawRaf = requestAnimationFrame(loop);
     };
     resize();
@@ -181,7 +181,7 @@ export function PianoRoll({
       cancelAnimationFrame(drawRaf);
       window.removeEventListener('resize', resize);
     };
-  }, [bpm, gridDelay, keySignature, labelMode, onChordChange]);
+  }, [bpm, getElapsed, gridDelay, keySignature, labelMode, onChordChange]);
 
   return <>
     <canvas ref={canvasRef} />

@@ -5,6 +5,8 @@ import { usePianoAudio } from './usePianoAudio';
 export function usePlayback(notes: Note[], muted: boolean, volume: number) {
   const [playing, setPlaying] = useState(false);
   const [elapsed, setElapsed] = useState(0);
+  const elapsedRef = useRef(0);
+  const lastElapsedCommitRef = useRef(0);
   const startRef = useRef(0);
   const pausedRef = useRef(0);
   const playbackRafRef = useRef<number>();
@@ -21,7 +23,8 @@ export function usePlayback(notes: Note[], muted: boolean, volume: number) {
   useEffect(() => {
     if (!playing) return;
     const loop = () => {
-      const playbackTime = pausedRef.current + (performance.now() - startRef.current) / 1000;
+      const now = performance.now();
+      const playbackTime = pausedRef.current + (now - startRef.current) / 1000;
       const current = Math.min(playbackTime, duration);
       notesRef.current.forEach(note => {
         if (!note.played && current >= note.start) {
@@ -29,11 +32,16 @@ export function usePlayback(notes: Note[], muted: boolean, volume: number) {
           playNote(note.pitch, note.duration);
         }
       });
-      setElapsed(current);
+      elapsedRef.current = current;
       if (playbackTime >= duration) {
         pausedRef.current = duration;
+        setElapsed(current);
         setPlaying(false);
         return;
+      }
+      if (now - lastElapsedCommitRef.current >= 100) {
+        lastElapsedCommitRef.current = now;
+        setElapsed(current);
       }
       playbackRafRef.current = requestAnimationFrame(loop);
     };
@@ -48,6 +56,7 @@ export function usePlayback(notes: Note[], muted: boolean, volume: number) {
         duration,
         pausedRef.current + (performance.now() - startRef.current) / 1000,
       );
+      elapsedRef.current = pausedRef.current;
       setElapsed(pausedRef.current);
       setPlaying(false);
       return;
@@ -55,11 +64,13 @@ export function usePlayback(notes: Note[], muted: boolean, volume: number) {
 
     if (pausedRef.current >= duration) {
       pausedRef.current = 0;
+      elapsedRef.current = 0;
       setElapsed(0);
       notesRef.current.forEach(note => { note.played = false; });
     }
     prepare();
     startRef.current = performance.now();
+    lastElapsedCommitRef.current = startRef.current;
     setPlaying(true);
   }, [duration, playing, prepare]);
 
@@ -78,6 +89,7 @@ export function usePlayback(notes: Note[], muted: boolean, volume: number) {
 
   const seek = useCallback((time: number) => {
     pausedRef.current = time;
+    elapsedRef.current = time;
     startRef.current = performance.now();
     setElapsed(time);
     notesRef.current.forEach(note => { note.played = note.start < time; });
@@ -85,10 +97,13 @@ export function usePlayback(notes: Note[], muted: boolean, volume: number) {
 
   const reset = useCallback(() => {
     pausedRef.current = 0;
+    elapsedRef.current = 0;
     setElapsed(0);
     setPlaying(false);
     notesRef.current.forEach(note => { note.played = false; });
   }, []);
 
-  return { duration, elapsed, playing, reset, seek, toggle };
+  const getElapsed = useCallback(() => elapsedRef.current, []);
+
+  return { duration, elapsed, getElapsed, playing, reset, seek, toggle };
 }

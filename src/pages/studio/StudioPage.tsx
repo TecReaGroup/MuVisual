@@ -40,11 +40,11 @@ export function StudioPage() {
       <div className={`canvas-wrap ${viewMode === 'score' ? 'score-mode' : ''}`} onWheel={viewMode === 'roll' ? event => {
         event.preventDefault();
         const beatStep = 60 / bpm;
-        playback.seek(Math.max(0, Math.min(playback.duration, playback.elapsed + event.deltaY / 240 * beatStep)));
+        playback.seek(Math.max(0, Math.min(playback.duration, playback.getElapsed() + event.deltaY / 240 * beatStep)));
       } : undefined}>
         {viewMode === 'roll'
-          ? <PianoRoll bpm={bpm} duration={playback.duration} elapsed={playback.elapsed} gridDelay={gridDelay} keySignature={keySignature} labelMode={labelMode} notes={notes} onChordChange={setChordName} onSeek={playback.seek} />
-          : <JianpuView notes={notes} elapsed={playback.elapsed} tempoMap={tempoMap} keySignature={keySignature} />}
+          ? <PianoRoll bpm={bpm} duration={playback.duration} elapsed={playback.elapsed} getElapsed={playback.getElapsed} gridDelay={gridDelay} keySignature={keySignature} labelMode={labelMode} notes={notes} onChordChange={setChordName} onSeek={playback.seek} />
+          : <JianpuView notes={notes} getElapsed={playback.getElapsed} tempoMap={tempoMap} keySignature={keySignature} />}
         <div className="canvas-label">
           <span>{viewMode === 'roll' ? 'LIVE VISUALIZER' : 'MIDI 简谱 · NUMBERED NOTATION'}</span>
           <div className="view-switch" role="group" aria-label="Visualization and settings">
