@@ -1,6 +1,6 @@
 import { ListMusic, PanelRightClose, PanelRightOpen, Piano } from 'lucide-react';
 import { useState } from 'react';
-import { createDemoNotes, type LabelMode, type Note, type TempoPoint, type ViewMode } from '../../entities/music';
+import { createDemoNotes, type LabelMode, type Note, type ViewMode } from '../../entities/music';
 import { MidiImportButton, type ImportedMidi } from '../../features/midi-import';
 import { PianoRoll } from '../../features/piano-roll';
 import { PlaybackControls, usePlayback } from '../../features/playback';
@@ -14,7 +14,6 @@ export function StudioPage() {
   const [muted, setMuted] = useState(false);
   const [gridDelay, setGridDelay] = useState(0);
   const [loadedName, setLoadedName] = useState('Demo arrangement');
-  const [tempoMap, setTempoMap] = useState<TempoPoint[]>([{ beat: 0, time: 0, bpm: 92 }]);
   const [labelMode, setLabelMode] = useState<LabelMode>('name');
   const [viewMode, setViewMode] = useState<ViewMode>('roll');
   const [controlsCollapsed, setControlsCollapsed] = useState(true);
@@ -24,8 +23,8 @@ export function StudioPage() {
   const handleImport = (midi: ImportedMidi) => {
     setNotes(midi.notes);
     setBpm(midi.bpm);
-    setTempoMap(midi.tempoMap);
     setKeySignature(midi.keySignature);
+    setGridDelay(midi.backgroundDelayMs);
     setLoadedName(midi.name);
     playback.reset();
   };
@@ -44,7 +43,7 @@ export function StudioPage() {
       } : undefined}>
         {viewMode === 'roll'
           ? <PianoRoll bpm={bpm} duration={playback.duration} elapsed={playback.elapsed} getElapsed={playback.getElapsed} gridDelay={gridDelay} keySignature={keySignature} labelMode={labelMode} notes={notes} onChordChange={setChordName} onSeek={playback.seek} />
-          : <JianpuView notes={notes} getElapsed={playback.getElapsed} tempoMap={tempoMap} keySignature={keySignature} />}
+          : <JianpuView bpm={bpm} gridDelay={gridDelay} notes={notes} getElapsed={playback.getElapsed} keySignature={keySignature} />}
         <div className="canvas-label">
           <span>{viewMode === 'roll' ? 'LIVE VISUALIZER' : 'MIDI 简谱 · NUMBERED NOTATION'}</span>
           <div className="view-switch" role="group" aria-label="Visualization and settings">

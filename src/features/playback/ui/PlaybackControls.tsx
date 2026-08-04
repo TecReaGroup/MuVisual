@@ -27,6 +27,7 @@ type PlaybackControlsProps = {
 
 export function PlaybackControls(props: PlaybackControlsProps) {
   const changeBpm = (nextBpm: number) => props.onBpmChange(Math.max(30, Math.min(300, nextBpm)));
+  const gridDelayMax = Math.max(2000, Math.ceil(props.gridDelay / 1000) * 1000);
 
   return <>
     <div className="controls-header"><div className="eyebrow">PLAYBACK CONTROL</div></div>
@@ -62,9 +63,9 @@ export function PlaybackControls(props: PlaybackControlsProps) {
     </div>
     <div className="control delay-control">
       <div><span>BACKGROUND DELAY</span><b>{props.gridDelay}<small>MS</small></b></div>
-      <input type="range" min="0" max="2000" step="10" value={props.gridDelay} onChange={event => props.onGridDelayChange(+event.target.value)} />
+      <input type="range" min="0" max={gridDelayMax} step="10" value={props.gridDelay} onChange={event => props.onGridDelayChange(+event.target.value)} />
       <div className="delay-actions step-actions">
-        <button onClick={() => props.onGridDelayChange(Math.min(2000, props.gridDelay + 10))} disabled={props.gridDelay >= 2000} aria-label="Increase background delay by 10 milliseconds"><Plus size={16} />10 MS</button>
+        <button onClick={() => props.onGridDelayChange(Math.min(gridDelayMax, props.gridDelay + 10))} disabled={props.gridDelay >= gridDelayMax} aria-label="Increase background delay by 10 milliseconds"><Plus size={16} />10 MS</button>
         <button onClick={() => props.onGridDelayChange(Math.max(0, props.gridDelay - 10))} disabled={props.gridDelay <= 0} aria-label="Decrease background delay by 10 milliseconds"><Minus size={16} />10 MS</button>
       </div>
     </div>
