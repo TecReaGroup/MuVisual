@@ -3,7 +3,9 @@ export type LibraryItem = {
   audioUrl: string | null;
   id: string;
   midiUrl: string | null;
+  originalMidiUrl: string | null;
   pianoUrl: string | null;
+  quantizedMidiUrl: string | null;
   size: number;
   title: string;
   updatedAt: string | null;

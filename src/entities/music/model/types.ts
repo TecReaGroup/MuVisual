@@ -20,3 +20,5 @@ export type TempoPoint = {
 export type LabelMode = 'name' | 'number';
 
 export type ViewMode = 'roll' | 'score';
+
+export type AudioSource = 'midi' | 'piano' | 'original';

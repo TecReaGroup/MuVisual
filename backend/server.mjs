@@ -28,7 +28,7 @@ async function readLibrary() {
     const quantizedMidi = files.find(file => file.name.toLowerCase().endsWith('_quantized.mid'));
     const pianoAudio = files.find(file => file.name.toLowerCase().endsWith('_piano.mp3'));
     const sourceAudio = files.find(file => file.name.toLowerCase().endsWith('.mp3') && !file.name.toLowerCase().endsWith('_piano.mp3'));
-    const primaryFile = sourceMidi ?? quantizedMidi ?? sourceAudio ?? pianoAudio;
+    const primaryFile = quantizedMidi ?? sourceMidi ?? sourceAudio ?? pianoAudio;
     const fileStats = primaryFile ? await stat(join(folderPath, primaryFile.name)) : null;
     const { title, album } = splitFolderName(folder.name);
     const id = encodeId(folder.name);
@@ -37,7 +37,9 @@ async function readLibrary() {
       id,
       title,
       album,
-      midiUrl: sourceMidi || quantizedMidi ? `/media/${id}/midi` : null,
+      midiUrl: quantizedMidi || sourceMidi ? `/media/${id}/midi` : null,
+      originalMidiUrl: sourceMidi ? `/media/${id}/midi-original` : null,
+      quantizedMidiUrl: quantizedMidi ? `/media/${id}/midi-quantized` : null,
       audioUrl: sourceAudio ? `/media/${id}/audio` : null,
       pianoUrl: pianoAudio ? `/media/${id}/piano` : null,
       size: fileStats?.size ?? 0,
@@ -64,12 +66,14 @@ async function findMedia(id, kind) {
   const folderPath = join(visualRoot, folderName);
   const files = (await readdir(folderPath, { withFileTypes: true })).filter(file => file.isFile());
   const matchers = {
-    midi: file => ['.mid', '.midi'].includes(extname(file.name).toLowerCase()) && !file.name.includes('_quantized'),
+    'midi-original': file => ['.mid', '.midi'].includes(extname(file.name).toLowerCase()) && !file.name.toLowerCase().includes('_quantized'),
+    'midi-quantized': file => file.name.toLowerCase().endsWith('_quantized.mid'),
     audio: file => file.name.toLowerCase().endsWith('.mp3') && !file.name.toLowerCase().endsWith('_piano.mp3'),
     piano: file => file.name.toLowerCase().endsWith('_piano.mp3'),
   };
-  let file = files.find(matchers[kind]);
-  if (!file && kind === 'midi') file = files.find(candidate => candidate.name.toLowerCase().endsWith('_quantized.mid'));
+  let file = kind === 'midi'
+    ? files.find(matchers['midi-quantized']) ?? files.find(matchers['midi-original'])
+    : files.find(matchers[kind]);
   return file ? join(folderPath, file.name) : null;
 }
 
@@ -134,7 +138,7 @@ const server = createServer(async (request, response) => {
       return;
     }
 
-    const mediaMatch = request.method === 'GET' && url.pathname.match(/^\/media\/([^/]+)\/(midi|audio|piano)$/);
+    const mediaMatch = request.method === 'GET' && url.pathname.match(/^\/media\/([^/]+)\/(midi|midi-original|midi-quantized|audio|piano)$/);
     if (mediaMatch) {
       const filePath = await findMedia(mediaMatch[1], mediaMatch[2]);
       if (!filePath) {

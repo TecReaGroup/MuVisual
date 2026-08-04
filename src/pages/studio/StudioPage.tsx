@@ -1,7 +1,7 @@
 import { ArrowLeft, ListMusic, LoaderCircle, PanelRightClose, PanelRightOpen, Piano } from 'lucide-react';
 import { useState } from 'react';
-import { createDemoNotes, type LabelMode, type Note, type ViewMode } from '../../entities/music';
-import { MidiImportButton, type ImportedMidi } from '../../features/midi-import';
+import { createDemoNotes, type AudioSource, type LabelMode, type Note, type ViewMode } from '../../entities/music';
+import { MidiImportButton, type ImportedMidi, type MidiVariant, type MidiVersion } from '../../features/midi-import';
 import { PianoRoll } from '../../features/piano-roll';
 import { PlaybackControls, usePlayback } from '../../features/playback';
 import { JianpuView } from '../../features/score';
@@ -11,7 +11,18 @@ type StudioPageProps = {
   onBack?: () => void;
 };
 
+function toMidiVariant(midi: ImportedMidi): MidiVariant {
+  return {
+    backgroundDelayMs: midi.backgroundDelayMs,
+    bpm: midi.bpm,
+    keySignature: midi.keySignature,
+    notes: midi.notes,
+    tempoMap: midi.tempoMap,
+  };
+}
+
 export function StudioPage({ initialMidi, onBack }: StudioPageProps) {
+  const initialMidiVersion = initialMidi?.defaultMidiVersion ?? (initialMidi?.variants?.quantized ? 'quantized' : 'original');
   const [notes, setNotes] = useState<Note[]>(() => initialMidi?.notes ?? createDemoNotes());
   const [bpm, setBpm] = useState(initialMidi?.bpm ?? 92);
   const [keySignature, setKeySignature] = useState(initialMidi?.keySignature ?? 'C:major');
@@ -23,7 +34,12 @@ export function StudioPage({ initialMidi, onBack }: StudioPageProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('roll');
   const [controlsCollapsed, setControlsCollapsed] = useState(true);
   const [chordName, setChordName] = useState<string | null>(null);
-  const playback = usePlayback(notes, muted, volume);
+  const [midiVersion, setMidiVersion] = useState<MidiVersion>(initialMidiVersion);
+  const [midiVariants, setMidiVariants] = useState<Partial<Record<MidiVersion, MidiVariant>>>(() => initialMidi?.variants ?? (initialMidi ? { [initialMidiVersion]: toMidiVariant(initialMidi) } : {}));
+  const [audioSource, setAudioSource] = useState<AudioSource>('midi');
+  const [audioUrls, setAudioUrls] = useState(() => initialMidi?.audioUrls ?? { original: null, piano: null });
+  const activeAudioUrl = audioSource === 'piano' ? audioUrls.piano : audioSource === 'original' ? audioUrls.original : null;
+  const playback = usePlayback(notes, muted, volume, audioSource, activeAudioUrl);
   const loadStatusLabel = {
     loading: '加载中',
     ready: '已就绪',
@@ -31,12 +47,33 @@ export function StudioPage({ initialMidi, onBack }: StudioPageProps) {
   }[playback.loadStatus];
 
   const handleImport = (midi: ImportedMidi) => {
+    playback.reset();
     setNotes(midi.notes);
     setBpm(midi.bpm);
     setKeySignature(midi.keySignature);
     setGridDelay(midi.backgroundDelayMs);
     setLoadedName(midi.name);
+    setMidiVersion('original');
+    setMidiVariants({ original: toMidiVariant(midi) });
+    setAudioSource('midi');
+    setAudioUrls({ original: null, piano: null });
+  };
+
+  const handleMidiVersionChange = (version: MidiVersion) => {
+    const variant = midiVariants[version];
+    if (!variant || version === midiVersion) return;
     playback.reset();
+    setMidiVersion(version);
+    setNotes(variant.notes);
+    setBpm(variant.bpm);
+    setKeySignature(variant.keySignature);
+    setGridDelay(variant.backgroundDelayMs);
+  };
+
+  const handleAudioSourceChange = (source: AudioSource) => {
+    if (source === audioSource) return;
+    playback.pause();
+    setAudioSource(source);
   };
 
   return <main className="app">
@@ -72,6 +109,9 @@ export function StudioPage({ initialMidi, onBack }: StudioPageProps) {
       </div>
       <aside className={`controls ${controlsCollapsed ? 'collapsed' : ''}`}>
         <PlaybackControls
+          audioSource={audioSource}
+          availableAudioSources={{ midi: true, piano: Boolean(audioUrls.piano), original: Boolean(audioUrls.original) }}
+          availableMidiVersions={{ original: Boolean(midiVariants.original), quantized: Boolean(midiVariants.quantized) }}
           bpm={bpm}
           duration={playback.duration}
           elapsed={playback.elapsed}
@@ -79,14 +119,17 @@ export function StudioPage({ initialMidi, onBack }: StudioPageProps) {
           keySignature={keySignature}
           labelMode={labelMode}
           muted={muted}
+          midiVersion={midiVersion}
           noteCount={notes.length}
           playing={playback.playing}
           volume={volume}
+          onAudioSourceChange={handleAudioSourceChange}
           onBpmChange={setBpm}
           onGridDelayChange={setGridDelay}
           onKeySignatureChange={setKeySignature}
           onLabelModeChange={setLabelMode}
           onMutedChange={setMuted}
+          onMidiVersionChange={handleMidiVersionChange}
           onReset={playback.reset}
           onSeek={playback.seek}
           onToggle={playback.toggle}

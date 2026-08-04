@@ -1,24 +1,30 @@
-import { Minus, Pause, Play, Plus, RotateCcw, Volume2, VolumeX } from 'lucide-react';
+import { Disc3, Minus, Music2, Pause, Piano, Play, Plus, RotateCcw, Volume2, VolumeX } from 'lucide-react';
 import { KEY_SIGNATURE_OPTIONS } from '../../../entities/music/lib/pitch';
-import type { LabelMode } from '../../../entities/music/model/types';
+import type { AudioSource, LabelMode } from '../../../entities/music/model/types';
 import { formatTime } from '../../../shared/lib/formatTime';
 
 type PlaybackControlsProps = {
   bpm: number;
+  audioSource: AudioSource;
+  availableAudioSources: Record<AudioSource, boolean>;
+  availableMidiVersions: Record<'original' | 'quantized', boolean>;
   duration: number;
   elapsed: number;
   gridDelay: number;
   keySignature: string;
   labelMode: LabelMode;
   muted: boolean;
+  midiVersion: 'original' | 'quantized';
   noteCount: number;
   playing: boolean;
   volume: number;
   onBpmChange: (bpm: number) => void;
+  onAudioSourceChange: (source: AudioSource) => void;
   onGridDelayChange: (delay: number) => void;
   onKeySignatureChange: (keySignature: string) => void;
   onLabelModeChange: (mode: LabelMode) => void;
   onMutedChange: (muted: boolean) => void;
+  onMidiVersionChange: (version: 'original' | 'quantized') => void;
   onReset: () => void;
   onSeek: (time: number) => void;
   onToggle: () => void;
@@ -34,6 +40,13 @@ export function PlaybackControls(props: PlaybackControlsProps) {
     <div className="progress-control">
       <input type="range" min="0" max={props.duration} step="0.01" value={Math.min(props.elapsed, props.duration)} onChange={event => props.onSeek(+event.target.value)} aria-label="Playback progress" />
       <div><span>{formatTime(props.elapsed)}</span><span>{formatTime(props.duration)}</span></div>
+    </div>
+    <div className="midi-version-control">
+      <span>MIDI VERSION</span>
+      <div className="midi-version-switch" role="group" aria-label="MIDI version">
+        <button className={props.midiVersion === 'original' ? 'selected' : ''} disabled={!props.availableMidiVersions.original} onClick={() => props.onMidiVersionChange('original')} aria-pressed={props.midiVersion === 'original'}>ORIGINAL</button>
+        <button className={props.midiVersion === 'quantized' ? 'selected' : ''} disabled={!props.availableMidiVersions.quantized} onClick={() => props.onMidiVersionChange('quantized')} aria-pressed={props.midiVersion === 'quantized'}>QUANTIZED</button>
+      </div>
     </div>
     <div className="transport">
       <button className="primary" onClick={props.onToggle} aria-label={props.playing ? 'Pause' : 'Play'}>{props.playing ? <Pause size={20} /> : <Play size={20} fill="currentColor" />}</button>
@@ -72,6 +85,14 @@ export function PlaybackControls(props: PlaybackControlsProps) {
     <div className="control">
       <div><span>MASTER VOLUME</span><b>{props.muted ? 0 : props.volume}<small>%</small></b></div>
       <input type="range" min="0" max="100" value={props.volume} onChange={event => props.onVolumeChange(+event.target.value)} />
+    </div>
+    <div className="audio-source-control">
+      <span>AUDIO SOURCE</span>
+      <div className="audio-source-switch" role="group" aria-label="Audio source">
+        <button className={props.audioSource === 'midi' ? 'selected' : ''} disabled={!props.availableAudioSources.midi} onClick={() => props.onAudioSourceChange('midi')} aria-pressed={props.audioSource === 'midi'}><Music2 size={14} />MIDI</button>
+        <button className={props.audioSource === 'piano' ? 'selected' : ''} disabled={!props.availableAudioSources.piano} onClick={() => props.onAudioSourceChange('piano')} aria-pressed={props.audioSource === 'piano'}><Piano size={14} />PIANO</button>
+        <button className={props.audioSource === 'original' ? 'selected' : ''} disabled={!props.availableAudioSources.original} onClick={() => props.onAudioSourceChange('original')} aria-pressed={props.audioSource === 'original'}><Disc3 size={14} />ORIGINAL</button>
+      </div>
     </div>
     <button className="mute" onClick={() => props.onMutedChange(!props.muted)}>{props.muted ? <VolumeX size={17} /> : <Volume2 size={17} />}{props.muted ? 'UNMUTE AUDIO' : 'MUTE AUDIO'}</button>
     <div className="legend"><div><i className="left" />LEFT HAND</div><div><i className="right" />RIGHT HAND</div></div>

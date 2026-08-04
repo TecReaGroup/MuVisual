@@ -57,12 +57,29 @@ export function LibraryPage({ onOpenMidi, onHome }: LibraryPageProps) {
     setOpeningId(item.id);
     setError(null);
     try {
-      const response = await fetch(item.midiUrl);
-      if (!response.ok) throw new Error('MIDI request failed');
-      const file = new File([await response.blob()], `${item.title}.mid`, { type: 'audio/midi' });
-      const midi = await parseMidiFile(file);
-      if (!midi) throw new Error('Empty MIDI');
-      onOpenMidi({ ...midi, name: item.title });
+      const loadMidi = async (url: string | null, suffix: string) => {
+        if (!url) return null;
+        const response = await fetch(url);
+        if (!response.ok) return null;
+        const file = new File([await response.blob()], `${item.title}_${suffix}.mid`, { type: 'audio/midi' });
+        return parseMidiFile(file);
+      };
+      const [original, quantized] = await Promise.all([
+        loadMidi(item.originalMidiUrl, 'original'),
+        loadMidi(item.quantizedMidiUrl, 'quantized'),
+      ]);
+      const selected = quantized ?? original;
+      if (!selected) throw new Error('MIDI request failed');
+      onOpenMidi({
+        ...selected,
+        audioUrls: { original: item.audioUrl, piano: item.pianoUrl },
+        defaultMidiVersion: quantized ? 'quantized' : 'original',
+        name: item.title,
+        variants: {
+          ...(original ? { original } : {}),
+          ...(quantized ? { quantized } : {}),
+        },
+      });
     } catch {
       setError(`无法打开《${item.title}》，请稍后重试。`);
       setOpeningId(null);

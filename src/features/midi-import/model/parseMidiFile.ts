@@ -1,13 +1,21 @@
 import { Midi } from '@tonejs/midi';
 import type { Hand, Note, TempoPoint } from '../../../entities/music/model/types';
 
-export type ImportedMidi = {
+export type MidiVersion = 'original' | 'quantized';
+
+export type MidiVariant = {
   backgroundDelayMs: number;
   bpm: number;
   keySignature: string;
-  name: string;
   notes: Note[];
   tempoMap: TempoPoint[];
+};
+
+export type ImportedMidi = MidiVariant & {
+  audioUrls?: { original: string | null; piano: string | null };
+  defaultMidiVersion?: MidiVersion;
+  name: string;
+  variants?: Partial<Record<MidiVersion, MidiVariant>>;
 };
 
 function parseBackgroundDelayMs(meta: Array<{ text: string; ticks: number; type: string }>) {
