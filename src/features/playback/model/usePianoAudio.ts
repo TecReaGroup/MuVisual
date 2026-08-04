@@ -6,6 +6,7 @@ type LoadStatus = 'loading' | 'ready' | 'error';
 
 const sharedAudio: {
   context?: AudioContext;
+  muteGain?: GainNode;
   output?: GainNode;
   piano?: SplendidGrandPiano;
   load?: Promise<boolean>;
@@ -26,15 +27,18 @@ function getSharedAudioContext() {
 
   const context = new AudioContext();
   const output = context.createGain();
+  const muteGain = context.createGain();
   const compressor = context.createDynamicsCompressor();
   output.gain.value = 0.72;
+  muteGain.gain.value = 1;
   compressor.threshold.value = -10;
   compressor.knee.value = 24;
   compressor.ratio.value = 4;
   compressor.attack.value = 0.008;
   compressor.release.value = 0.2;
-  output.connect(compressor).connect(context.destination);
+  output.connect(muteGain).connect(compressor).connect(context.destination);
   sharedAudio.context = context;
+  sharedAudio.muteGain = muteGain;
   sharedAudio.output = output;
   return context;
 }
@@ -113,8 +117,15 @@ export function usePianoAudio(muted: boolean, volume: number) {
     void loadPiano();
   }, [loadPiano]);
 
+  useEffect(() => {
+    const context = getAudioContext();
+    const muteGain = sharedAudio.muteGain;
+    if (!muteGain) return;
+    muteGain.gain.cancelScheduledValues(context.currentTime);
+    muteGain.gain.setTargetAtTime(muted ? 0 : 1, context.currentTime, 0.008);
+  }, [getAudioContext, muted]);
+
   const playNote = useCallback((pitch: number, length: number, startTime?: number) => {
-    if (muted) return;
     const context = getAudioContext();
     const safeLength = Math.max(0.01, length);
     const noteStart = Math.max(context.currentTime, startTime ?? context.currentTime);
@@ -172,7 +183,7 @@ export function usePianoAudio(muted: boolean, volume: number) {
     activeStopsRef.current.add(stopNote);
     oscillator.start(now);
     oscillator.stop(releaseEnd + 0.002);
-  }, [beginVoice, getAudioContext, muted, volume]);
+  }, [beginVoice, getAudioContext, volume]);
 
   const stopAll = useCallback(() => {
     activeStopsRef.current.forEach(stop => stop());

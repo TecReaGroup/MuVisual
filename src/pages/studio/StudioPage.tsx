@@ -38,8 +38,7 @@ export function StudioPage({ initialMidi, onBack }: StudioPageProps) {
   const [midiVariants, setMidiVariants] = useState<Partial<Record<MidiVersion, MidiVariant>>>(() => initialMidi?.variants ?? (initialMidi ? { [initialMidiVersion]: toMidiVariant(initialMidi) } : {}));
   const [audioSource, setAudioSource] = useState<AudioSource>('midi');
   const [audioUrls, setAudioUrls] = useState(() => initialMidi?.audioUrls ?? { original: null, piano: null });
-  const activeAudioUrl = audioSource === 'piano' ? audioUrls.piano : audioSource === 'original' ? audioUrls.original : null;
-  const playback = usePlayback(notes, muted, volume, audioSource, activeAudioUrl);
+  const playback = usePlayback(notes, muted, volume, audioSource, audioUrls);
   const loadStatusLabel = {
     loading: '加载中',
     ready: '已就绪',
@@ -72,7 +71,6 @@ export function StudioPage({ initialMidi, onBack }: StudioPageProps) {
 
   const handleAudioSourceChange = (source: AudioSource) => {
     if (source === audioSource) return;
-    playback.pause();
     setAudioSource(source);
   };
 

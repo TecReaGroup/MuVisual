@@ -41,13 +41,6 @@ export function PlaybackControls(props: PlaybackControlsProps) {
       <input type="range" min="0" max={props.duration} step="0.01" value={Math.min(props.elapsed, props.duration)} onChange={event => props.onSeek(+event.target.value)} aria-label="Playback progress" />
       <div><span>{formatTime(props.elapsed)}</span><span>{formatTime(props.duration)}</span></div>
     </div>
-    <div className="midi-version-control">
-      <span>MIDI VERSION</span>
-      <div className="midi-version-switch" role="group" aria-label="MIDI version">
-        <button className={props.midiVersion === 'original' ? 'selected' : ''} disabled={!props.availableMidiVersions.original} onClick={() => props.onMidiVersionChange('original')} aria-pressed={props.midiVersion === 'original'}>ORIGINAL</button>
-        <button className={props.midiVersion === 'quantized' ? 'selected' : ''} disabled={!props.availableMidiVersions.quantized} onClick={() => props.onMidiVersionChange('quantized')} aria-pressed={props.midiVersion === 'quantized'}>QUANTIZED</button>
-      </div>
-    </div>
     <div className="transport">
       <button className="primary" onClick={props.onToggle} aria-label={props.playing ? 'Pause' : 'Play'}>{props.playing ? <Pause size={20} /> : <Play size={20} fill="currentColor" />}</button>
       <button onClick={props.onReset} aria-label="Reset"><RotateCcw size={18} /></button>
@@ -95,6 +88,13 @@ export function PlaybackControls(props: PlaybackControlsProps) {
       </div>
     </div>
     <button className="mute" onClick={() => props.onMutedChange(!props.muted)}>{props.muted ? <VolumeX size={17} /> : <Volume2 size={17} />}{props.muted ? 'UNMUTE AUDIO' : 'MUTE AUDIO'}</button>
+    <div className="midi-version-control">
+      <span>MIDI VERSION</span>
+      <div className="midi-version-switch" role="group" aria-label="MIDI version">
+        <button className={props.midiVersion === 'original' ? 'selected' : ''} disabled={!props.availableMidiVersions.original} onClick={() => props.onMidiVersionChange('original')} aria-pressed={props.midiVersion === 'original'}>ORIGINAL</button>
+        <button className={props.midiVersion === 'quantized' ? 'selected' : ''} disabled={!props.availableMidiVersions.quantized} onClick={() => props.onMidiVersionChange('quantized')} aria-pressed={props.midiVersion === 'quantized'}>QUANTIZED</button>
+      </div>
+    </div>
     <div className="legend"><div><i className="left" />LEFT HAND</div><div><i className="right" />RIGHT HAND</div></div>
   </>;
 }
