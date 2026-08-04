@@ -25,3 +25,7 @@ preview:
 
 docker:
 	docker compose up -d --build
+
+docker-push:
+	docker build -t roupertrg/muvisual:latest .
+	docker push roupertrg/muvisual:latest
