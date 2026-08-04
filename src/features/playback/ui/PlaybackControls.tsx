@@ -3,6 +3,19 @@ import { KEY_SIGNATURE_OPTIONS } from '../../../entities/music/lib/pitch';
 import type { AudioSource, LabelMode } from '../../../entities/music/model/types';
 import { formatTime } from '../../../shared/lib/formatTime';
 
+const rangePointerHandlers = {
+  draggable: false,
+  onDragStart: (event: React.DragEvent<HTMLInputElement>) => event.preventDefault(),
+  onPointerDown: (event: React.PointerEvent<HTMLInputElement>) => {
+    event.currentTarget.setPointerCapture(event.pointerId);
+  },
+  onPointerUp: (event: React.PointerEvent<HTMLInputElement>) => {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  },
+};
+
 type PlaybackControlsProps = {
   bpm: number;
   audioSource: AudioSource;
@@ -38,7 +51,7 @@ export function PlaybackControls(props: PlaybackControlsProps) {
   return <>
     <div className="controls-header"><div className="eyebrow">PLAYBACK CONTROL</div></div>
     <div className="progress-control">
-      <input type="range" min="0" max={props.duration} step="0.01" value={Math.min(props.elapsed, props.duration)} onChange={event => props.onSeek(+event.target.value)} aria-label="Playback progress" />
+      <input {...rangePointerHandlers} type="range" min="0" max={props.duration} step="0.01" value={Math.min(props.elapsed, props.duration)} onChange={event => props.onSeek(+event.target.value)} aria-label="Playback progress" />
       <div><span>{formatTime(props.elapsed)}</span><span>{formatTime(props.duration)}</span></div>
     </div>
     <div className="transport">
@@ -61,7 +74,7 @@ export function PlaybackControls(props: PlaybackControlsProps) {
     </div>
     <div className="control tempo-control">
       <div><span>TEMPO</span><b>{props.bpm}<small>BPM</small></b></div>
-      <input type="range" min="30" max="300" step="1" value={props.bpm} onChange={event => changeBpm(+event.target.value)} />
+      <input {...rangePointerHandlers} type="range" min="30" max="300" step="1" value={props.bpm} onChange={event => changeBpm(+event.target.value)} />
       <div className="step-actions">
         <button onClick={() => changeBpm(props.bpm + 1)} disabled={props.bpm >= 300} aria-label="Increase tempo by 1 BPM"><Plus size={16} />1 BPM</button>
         <button onClick={() => changeBpm(props.bpm - 1)} disabled={props.bpm <= 30} aria-label="Decrease tempo by 1 BPM"><Minus size={16} />1 BPM</button>
@@ -69,7 +82,7 @@ export function PlaybackControls(props: PlaybackControlsProps) {
     </div>
     <div className="control delay-control">
       <div><span>BACKGROUND DELAY</span><b>{props.gridDelay}<small>MS</small></b></div>
-      <input type="range" min="0" max={gridDelayMax} step="10" value={props.gridDelay} onChange={event => props.onGridDelayChange(+event.target.value)} />
+      <input {...rangePointerHandlers} type="range" min="0" max={gridDelayMax} step="10" value={props.gridDelay} onChange={event => props.onGridDelayChange(+event.target.value)} />
       <div className="delay-actions step-actions">
         <button onClick={() => props.onGridDelayChange(Math.min(gridDelayMax, props.gridDelay + 10))} disabled={props.gridDelay >= gridDelayMax} aria-label="Increase background delay by 10 milliseconds"><Plus size={16} />10 MS</button>
         <button onClick={() => props.onGridDelayChange(Math.max(0, props.gridDelay - 10))} disabled={props.gridDelay <= 0} aria-label="Decrease background delay by 10 milliseconds"><Minus size={16} />10 MS</button>
@@ -77,7 +90,7 @@ export function PlaybackControls(props: PlaybackControlsProps) {
     </div>
     <div className="control">
       <div><span>MASTER VOLUME</span><b>{props.muted ? 0 : props.volume}<small>%</small></b></div>
-      <input type="range" min="0" max="100" value={props.volume} onChange={event => props.onVolumeChange(+event.target.value)} />
+      <input {...rangePointerHandlers} type="range" min="0" max="100" value={props.volume} onChange={event => props.onVolumeChange(+event.target.value)} />
     </div>
     <div className="audio-source-control">
       <span>AUDIO SOURCE</span>

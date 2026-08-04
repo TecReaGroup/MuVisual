@@ -30,6 +30,8 @@
 .controls::-webkit-scrollbar-track { background:#0b0e14; }
 .controls::-webkit-scrollbar-thumb { border:2px solid #0b0e14; background:#484e58; }
 .controls::-webkit-scrollbar-thumb:hover { background:#626b78; }
+.controls input[type=range] { cursor:ew-resize; touch-action:none; user-select:none; -webkit-user-drag:none; }
+.controls input[type=range]:active { cursor:ew-resize; }
 footer { flex:0 0 40px; }
 @media (min-width:721px) and (max-height:950px) {
   .controls { padding:20px 24px; }
