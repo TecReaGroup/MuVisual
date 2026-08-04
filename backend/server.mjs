@@ -1,11 +1,28 @@
 import { createReadStream } from 'node:fs';
 import { readdir, stat } from 'node:fs/promises';
 import { createServer } from 'node:http';
-import { extname, join } from 'node:path';
+import { extname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const PORT = Number(process.env.PORT || 8787);
 const visualRoot = fileURLToPath(new URL('./data/visual/', import.meta.url));
+const distRoot = fileURLToPath(new URL('../dist/', import.meta.url));
+
+const staticContentTypes = {
+  '.css': 'text/css; charset=utf-8',
+  '.html': 'text/html; charset=utf-8',
+  '.ico': 'image/x-icon',
+  '.jpeg': 'image/jpeg',
+  '.jpg': 'image/jpeg',
+  '.js': 'text/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.map': 'application/json; charset=utf-8',
+  '.png': 'image/png',
+  '.svg': 'image/svg+xml',
+  '.webp': 'image/webp',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+};
 
 const encodeId = value => Buffer.from(value, 'utf8').toString('base64url');
 const decodeId = value => Buffer.from(value, 'base64url').toString('utf8');
@@ -56,6 +73,32 @@ function sendJson(response, status, value) {
     'Cache-Control': 'no-store',
   });
   response.end(JSON.stringify(value));
+}
+
+async function streamFrontend(response, pathname) {
+  const requestedPath = pathname === '/' ? 'index.html' : decodeURIComponent(pathname.slice(1));
+  const filePath = resolve(distRoot, requestedPath);
+  const relativePath = relative(distRoot, filePath);
+
+  if (relativePath.startsWith('..') || isAbsolute(relativePath)) return false;
+
+  try {
+    const fileStats = await stat(filePath);
+    if (!fileStats.isFile()) return false;
+
+    response.writeHead(200, {
+      'Content-Type': staticContentTypes[extname(filePath).toLowerCase()] ?? 'application/octet-stream',
+      'Content-Length': fileStats.size,
+      'Cache-Control': pathname.startsWith('/assets/')
+        ? 'public, max-age=31536000, immutable'
+        : 'no-cache',
+    });
+    createReadStream(filePath).pipe(response);
+    return true;
+  } catch (error) {
+    if (error?.code === 'ENOENT') return false;
+    throw error;
+  }
 }
 
 async function findMedia(id, kind) {
@@ -147,6 +190,11 @@ const server = createServer(async (request, response) => {
       }
       await streamMedia(request, response, filePath);
       return;
+    }
+
+    if (request.method === 'GET') {
+      if (await streamFrontend(response, url.pathname)) return;
+      if (!extname(url.pathname) && await streamFrontend(response, '/')) return;
     }
 
     sendJson(response, 404, { error: 'Route not found' });

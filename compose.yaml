@@ -1,0 +1,14 @@
+services:
+  muvisual:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: muvisual
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    volumes:
+      - ./backend/data/visual:/app/backend/data/visual:ro
+    environment:
+      NODE_ENV: production
+      PORT: 8787

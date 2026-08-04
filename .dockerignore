@@ -1,0 +1,13 @@
+.git
+.gitignore
+.playwright-cli
+.vite-dev-error.log
+.vite-dev.log
+Dockerfile
+compose.yaml
+node_modules
+dist
+output
+temp
+backend/data/visual
+npm-debug.log*

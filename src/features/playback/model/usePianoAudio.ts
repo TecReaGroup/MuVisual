@@ -79,7 +79,9 @@ export function usePianoAudio(muted: boolean, volume: number) {
     const updateStatus = () => setLoadStatus(sharedAudio.status);
     sharedAudio.listeners.add(updateStatus);
     updateStatus();
-    return () => sharedAudio.listeners.delete(updateStatus);
+    return () => {
+      sharedAudio.listeners.delete(updateStatus);
+    };
   }, []);
 
   const getAudioContext = useCallback(() => getSharedAudioContext(), []);
@@ -131,7 +133,7 @@ export function usePianoAudio(muted: boolean, volume: number) {
     const noteStart = Math.max(context.currentTime, startTime ?? context.currentTime);
     if (sharedAudio.piano) {
       const endVoice = beginVoice(context);
-      let stopNote = () => undefined;
+      let stopNote: () => void = () => {};
       const cleanup = () => {
         activeStopsRef.current.delete(stopNote);
         endVoice();

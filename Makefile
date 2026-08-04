@@ -22,3 +22,6 @@ build:
 
 preview:
 	npm run preview
+
+docker:
+	docker compose up -d --build
