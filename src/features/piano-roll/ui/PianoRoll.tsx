@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { END_MIDI, isWhitePitch, numberForPitch, PITCH_NAMES, START_MIDI } from '../../../entities/music/lib/pitch';
 import type { LabelMode, Note } from '../../../entities/music/model/types';
 import { recognizeChord } from '../model/recognizeChord';
@@ -22,6 +22,18 @@ function pitchLabel(pitch: number, mode: LabelMode, keySignature: string) {
   return mode === 'name' ? PITCH_NAMES[pitch % 12] : numberForPitch(pitch, keySignature).text;
 }
 
+function lowerBound(notes: Note[], time: number, inclusive: boolean) {
+  let low = 0;
+  let high = notes.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    const beforeBoundary = inclusive ? notes[middle].start < time : notes[middle].start <= time;
+    if (beforeBoundary) low = middle + 1;
+    else high = middle;
+  }
+  return low;
+}
+
 export function PianoRoll({
   bpm,
   duration,
@@ -35,9 +47,14 @@ export function PianoRoll({
   onSeek,
 }: PianoRollProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const notesRef = useRef(notes);
+  const sortedNotes = useMemo(() => [...notes].sort((first, second) => first.start - second.start), [notes]);
+  const maxNoteDuration = useMemo(
+    () => sortedNotes.reduce((maximum, note) => Math.max(maximum, note.duration), 0),
+    [sortedNotes],
+  );
+  const notesRef = useRef(sortedNotes);
   const chordRef = useRef<string | null>(null);
-  notesRef.current = notes;
+  notesRef.current = sortedNotes;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -50,6 +67,9 @@ export function PianoRoll({
     let width = 0;
     let height = 0;
     let keys: Record<number, PianoKey> = {};
+    let whiteKeys: Array<[number, PianoKey]> = [];
+    let blackKeys: Array<[number, PianoKey]> = [];
+    let needsRedraw = true;
 
     const resize = () => {
       width = canvas.clientWidth;
@@ -86,6 +106,13 @@ export function PianoRoll({
           }
         }
       }
+      whiteKeys = Object.entries(keys)
+        .filter(([, key]) => !key.black)
+        .map(([pitch, key]) => [+pitch, key]);
+      blackKeys = Object.entries(keys)
+        .filter(([, key]) => key.black)
+        .map(([pitch, key]) => [+pitch, key]);
+      needsRedraw = true;
     };
 
     const draw = (time: number) => {
@@ -100,7 +127,7 @@ export function PianoRoll({
       context.fillRect(0, 0, width, height);
       context.strokeStyle = 'rgba(255,255,255,.055)';
       context.lineWidth = 1;
-      Object.values(keys).filter(key => !key.black).forEach(key => {
+      whiteKeys.forEach(([, key]) => {
         context.beginPath();
         context.moveTo(key.x, 0);
         context.lineTo(key.x, bottom);
@@ -116,21 +143,25 @@ export function PianoRoll({
       }
 
       const activePitches = new Set<number>();
-      notesRef.current.forEach(note => {
+      const viewEnd = time + bottom / pixelsPerSecond;
+      const firstVisible = lowerBound(notesRef.current, time - maxNoteDuration, true);
+      const afterLastVisible = lowerBound(notesRef.current, viewEnd, false);
+      for (let index = firstVisible; index < afterLastVisible; index += 1) {
+        const note = notesRef.current[index];
         const noteEnd = note.start + note.duration;
         const active = time >= note.start && time <= noteEnd;
         if (active) activePitches.add(note.pitch);
         const yBottom = bottom - (note.start - time) * pixelsPerSecond;
         const yTop = yBottom - note.duration * pixelsPerSecond;
         const key = keys[note.pitch];
-        if (!key || yBottom < 0 || yTop > bottom) return;
+        if (!key || yBottom < 0 || yTop > bottom) continue;
         const top = Math.max(0, yTop);
         const visibleBottom = Math.min(bottom, yBottom);
         const barHeight = visibleBottom - top;
-        if (barHeight <= 0) return;
+        if (barHeight <= 0) continue;
 
         context.fillStyle = note.hand === 'left' ? '#ff6b5f' : '#ffab57';
-        context.shadowBlur = active ? 20 : 8;
+        context.shadowBlur = active ? 10 : 0;
         context.shadowColor = context.fillStyle;
         context.beginPath();
         context.roundRect(key.x + 2, top, key.w - 4, barHeight, 4);
@@ -149,7 +180,7 @@ export function PianoRoll({
           context.fillText(label, key.x + key.w / 2, visibleBottom - 3, Math.max(6, key.w - 4));
           context.shadowBlur = 0;
         }
-      });
+      }
 
       const chord = recognizeChord(activePitches);
       if (chord !== chordRef.current) {
@@ -157,31 +188,39 @@ export function PianoRoll({
         onChordChange(chord);
       }
 
-      Object.entries(keys).filter(([, key]) => !key.black).forEach(([pitch, key]) => {
-        context.fillStyle = activePitches.has(+pitch) ? '#ff6b5f' : '#e9ebef';
+      whiteKeys.forEach(([pitch, key]) => {
+        context.fillStyle = activePitches.has(pitch) ? '#ff6b5f' : '#e9ebef';
         context.fillRect(key.x, bottom, key.w, key.h);
         context.strokeStyle = '#15171c';
         context.strokeRect(key.x, bottom, key.w, key.h);
       });
-      Object.entries(keys).filter(([, key]) => key.black).forEach(([pitch, key]) => {
-        context.fillStyle = activePitches.has(+pitch) ? '#ff6b5f' : '#1b1e26';
+      blackKeys.forEach(([pitch, key]) => {
+        context.fillStyle = activePitches.has(pitch) ? '#ff6b5f' : '#1b1e26';
         context.fillRect(key.x, bottom, key.w, key.h);
       });
     };
 
     let drawRaf = 0;
-    const loop = () => {
-      draw(getElapsed());
+    let lastFrameTime = 0;
+    let lastPlaybackTime = Number.NaN;
+    const loop = (frameTime: number) => {
+      const playbackTime = getElapsed();
+      if (needsRedraw || (frameTime - lastFrameTime >= 1000 / 30 && playbackTime !== lastPlaybackTime)) {
+        draw(playbackTime);
+        lastFrameTime = frameTime;
+        lastPlaybackTime = playbackTime;
+        needsRedraw = false;
+      }
       drawRaf = requestAnimationFrame(loop);
     };
     resize();
     window.addEventListener('resize', resize);
-    loop();
+    drawRaf = requestAnimationFrame(loop);
     return () => {
       cancelAnimationFrame(drawRaf);
       window.removeEventListener('resize', resize);
     };
-  }, [bpm, getElapsed, gridDelay, keySignature, labelMode, onChordChange]);
+  }, [bpm, getElapsed, gridDelay, keySignature, labelMode, maxNoteDuration, onChordChange, sortedNotes]);
 
   return <>
     <canvas ref={canvasRef} />
