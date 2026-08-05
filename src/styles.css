@@ -60,7 +60,7 @@ footer { flex:0 0 40px; }
   .legend { display:none; }
 }
 @media (prefers-reduced-motion: reduce) { .chord-display { transition:none; } }
-@media (max-width: 720px) { .topbar { flex-basis:64px; padding:0 16px; height:64px; } .session { display:none; } .workspace { grid-template-columns:1fr; grid-template-rows:minmax(450px,1fr) auto; overflow-y:auto; } .canvas-wrap { min-height:470px; } .chord-display { top:38px; font-size:24px; } .controls { min-height:max-content; overflow:visible; border-left:0; border-top:1px solid #20232c; padding:22px 18px; } .transport { margin-bottom:22px; } .control { display:inline-block; width:49%; vertical-align:top; padding-right:12px; border-top:0; } .legend { display:none; } footer { padding:0 16px; font-size:8px; } }
+@media (max-width: 720px) { .topbar { position:relative; flex-basis:64px; padding:0 16px; height:64px; } .topbar .timbre-status { position:absolute; left:50%; display:block; max-width:132px; overflow:hidden; transform:translateX(-50%); font-size:9px; text-overflow:ellipsis; white-space:nowrap; } .topbar .timbre-status .divider, .topbar .timbre-status .loaded-name { display:none; } .topbar .upload { width:38px; height:38px; justify-content:center; padding:0; font-size:0; } .topbar .upload svg { width:18px; height:18px; } .workspace { grid-template-columns:1fr; grid-template-rows:minmax(450px,1fr) auto; overflow-y:auto; } .canvas-wrap { min-height:470px; } .chord-display { top:38px; font-size:24px; } .controls { min-height:max-content; overflow:visible; border-left:0; border-top:1px solid #20232c; padding:22px 18px; } .transport { margin-bottom:22px; } .control { display:inline-block; width:49%; vertical-align:top; padding-right:12px; border-top:0; } .legend { display:none; } footer { padding:0 16px; font-size:8px; } }
 
 .view-switch { display:flex; gap:4px; pointer-events:auto; margin-top:-7px; }
 .view-switch button { width:30px; height:28px; display:grid; place-items:center; border:1px solid #343946; background:#151922; color:#707887; }
@@ -196,13 +196,6 @@ input[type=range].roll-scrollbar:focus-visible { outline:2px solid #ffab57; outl
 .timbre-status.ready .status-dot { background:#6bd68b; box-shadow:0 0 10px #6bd68b; }
 .timbre-status.error { color:#ff8c82; }
 .timbre-status.error .status-dot { background:#ff6b5f; box-shadow:0 0 10px rgba(255,107,95,.8); }
-.audio-loading-overlay { position:absolute; z-index:8; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; background:rgba(8,10,15,.88); color:#f3f4f6; backdrop-filter:blur(3px); }
-.audio-loading-overlay svg { color:#ff756a; animation:audio-loader-spin .8s linear infinite; }
-.audio-loading-overlay strong { margin-top:5px; font-size:13px; font-weight:500; }
-.audio-loading-overlay span { color:#747c88; font:9px 'DM Mono'; letter-spacing:.11em; text-transform:uppercase; }
-@keyframes audio-loader-spin { to { transform:rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .audio-loading-overlay svg { animation:none; } }
-
 .midi-version-control, .audio-source-control { min-height:72px; border-top:1px solid #262a34; display:flex; align-items:flex-start; flex-direction:column; justify-content:center; gap:9px; }
 .audio-source-control { border-top:0; }
 .midi-version-control { margin-top:18px; padding-top:16px; border-top-color:#3a404a; }
