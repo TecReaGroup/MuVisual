@@ -14,7 +14,7 @@ const PIANO_CACHE_NAME = 'muvisual-piano-v1';
 const PIANO_BASE_URL = `${import.meta.env.BASE_URL}audio/splendid-grand-piano`;
 const PIANO_VELOCITY_RANGE: [number, number] = [68, 84];
 const STRING_INSTRUMENT = 'string_ensemble_1';
-const STRING_INSTRUMENT_URL = 'https://gleitz.github.io/midi-js-soundfonts/MusyngKite/string_ensemble_1-mp3.js';
+const STRING_INSTRUMENT_URL = `${import.meta.env.BASE_URL}audio/soundfonts/string_ensemble_1-mp3.js`;
 
 const pianoLayer = LAYERS.find(layer => (
   layer.vel_range[0] === PIANO_VELOCITY_RANGE[0]
