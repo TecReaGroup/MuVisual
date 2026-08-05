@@ -1,6 +1,6 @@
 import { Disc3, Minus, Music2, Pause, Piano, Play, Plus, RotateCcw, Volume2, VolumeX } from 'lucide-react';
 import { KEY_SIGNATURE_OPTIONS } from '../../../entities/music/lib/pitch';
-import type { AudioSource, LabelMode } from '../../../entities/music/model/types';
+import type { AudioSource, LabelMode, MidiInstrument } from '../../../entities/music/model/types';
 import { formatTime } from '../../../shared/lib/formatTime';
 import { useI18n } from '../../../shared/i18n';
 
@@ -20,6 +20,7 @@ const rangePointerHandlers = {
 type PlaybackControlsProps = {
   bpm: number;
   audioSource: AudioSource;
+  midiInstrument: MidiInstrument;
   availableAudioSources: Record<AudioSource, boolean>;
   availableMidiVersions: Record<'original' | 'quantized', boolean>;
   duration: number;
@@ -34,6 +35,7 @@ type PlaybackControlsProps = {
   volume: number;
   onBpmChange: (bpm: number) => void;
   onAudioSourceChange: (source: AudioSource) => void;
+  onMidiInstrumentChange: (instrument: MidiInstrument) => void;
   onGridDelayChange: (delay: number) => void;
   onKeySignatureChange: (keySignature: string) => void;
   onLabelModeChange: (mode: LabelMode) => void;
@@ -101,6 +103,13 @@ export function PlaybackControls(props: PlaybackControlsProps) {
         <button className={props.audioSource === 'piano' ? 'selected' : ''} disabled={!props.availableAudioSources.piano} onClick={() => props.onAudioSourceChange('piano')} aria-pressed={props.audioSource === 'piano'}><Piano size={14} />{t('playback.piano')}</button>
         <button className={props.audioSource === 'original' ? 'selected' : ''} disabled={!props.availableAudioSources.original} onClick={() => props.onAudioSourceChange('original')} aria-pressed={props.audioSource === 'original'}><Disc3 size={14} />{t('playback.originalAudio')}</button>
       </div>
+    </div>
+    <div className="midi-instrument-control">
+      <label htmlFor="midi-instrument">{t('playback.midiInstrument')}</label>
+      <select id="midi-instrument" value={props.midiInstrument} onChange={event => props.onMidiInstrumentChange(event.target.value as MidiInstrument)}>
+        <option value="piano">{t('playback.piano')}</option>
+        <option value="string">{t('playback.string')}</option>
+      </select>
     </div>
     <button className="mute" onClick={() => props.onMutedChange(!props.muted)}>{props.muted ? <VolumeX size={17} /> : <Volume2 size={17} />}{t(props.muted ? 'playback.unmute' : 'playback.mute')}</button>
     <div className="midi-version-control">

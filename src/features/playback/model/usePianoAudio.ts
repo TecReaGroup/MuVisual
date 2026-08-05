@@ -1,32 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { CacheStorage, LAYERS, SplendidGrandPiano } from 'smplr';
+import { createTimbreLibrary, type TimbreLibrary } from './timbreLibrary';
 
 type LoadStatus = 'loading' | 'ready' | 'error';
 
-const PIANO_CACHE_NAME = 'muvisual-piano-v1';
-const PIANO_BASE_URL = `${import.meta.env.BASE_URL}audio/splendid-grand-piano`;
-const PIANO_VELOCITY_RANGE: [number, number] = [68, 84];
 const CROSSFADE_SECONDS = 0.22;
-
-const pianoLayer = LAYERS.find(layer => (
-  layer.vel_range[0] === PIANO_VELOCITY_RANGE[0]
-  && layer.vel_range[1] === PIANO_VELOCITY_RANGE[1]
-));
-const pianoNotes = (pianoLayer?.samples ?? [])
-  .filter(([, name]) => !String(name).includes('#'))
-  .filter((_, index, samples) => index % 2 === 0 || index === samples.length - 1)
-  .map(([note]) => Number(note));
 
 const sharedAudio: {
   context?: AudioContext;
   muteGain?: GainNode;
   output?: GainNode;
   pianoBus?: GainNode;
+  stringBus?: GainNode;
   synthBus?: GainNode;
-  piano?: SplendidGrandPiano;
+  library?: TimbreLibrary;
   load?: Promise<boolean>;
   status: LoadStatus;
-  timbre: 'synth' | 'piano';
+  timbre: 'synth' | 'piano' | 'string';
   synthVoiceCount: number;
   listeners: Set<() => void>;
 } = {
@@ -47,12 +36,14 @@ function getSharedAudioContext() {
   const context = new AudioContext();
   const output = context.createGain();
   const pianoBus = context.createGain();
+  const stringBus = context.createGain();
   const synthBus = context.createGain();
   const muteGain = context.createGain();
   const compressor = context.createDynamicsCompressor();
   output.gain.value = 0.72;
   pianoBus.gain.value = sharedAudio.status === 'ready' ? 1 : 0;
   synthBus.gain.value = sharedAudio.status === 'ready' ? 0 : 1;
+  stringBus.gain.value = 0;
   muteGain.gain.value = 1;
   compressor.threshold.value = -10;
   compressor.knee.value = 24;
@@ -60,34 +51,31 @@ function getSharedAudioContext() {
   compressor.attack.value = 0.008;
   compressor.release.value = 0.2;
   pianoBus.connect(output);
+  stringBus.connect(output);
   synthBus.connect(output);
   output.connect(muteGain).connect(compressor).connect(context.destination);
   sharedAudio.context = context;
   sharedAudio.muteGain = muteGain;
   sharedAudio.output = output;
   sharedAudio.pianoBus = pianoBus;
+  sharedAudio.stringBus = stringBus;
   sharedAudio.synthBus = synthBus;
   return context;
 }
 
 export function preloadPiano() {
   const context = getSharedAudioContext();
-  if (sharedAudio.piano) return Promise.resolve(true);
+  if (sharedAudio.library) return sharedAudio.load ?? Promise.resolve(true);
   if (sharedAudio.load) return sharedAudio.load;
 
   notifySharedStatus('loading');
-  const piano = new SplendidGrandPiano(context, {
-    baseUrl: PIANO_BASE_URL,
-    destination: sharedAudio.pianoBus,
-    storage: new CacheStorage(PIANO_CACHE_NAME),
-    notesToLoad: {
-      notes: pianoNotes,
-      velocityRange: PIANO_VELOCITY_RANGE,
-    },
+  const library = createTimbreLibrary(context, {
+    piano: sharedAudio.pianoBus!,
+    string: sharedAudio.stringBus!,
   });
-  sharedAudio.load = piano.load
+  sharedAudio.library = library;
+  sharedAudio.load = library.load
     .then(() => {
-      sharedAudio.piano = piano;
       const now = context.currentTime;
       if (sharedAudio.synthVoiceCount === 0) {
         sharedAudio.pianoBus?.gain.setValueAtTime(1, now);
@@ -105,7 +93,7 @@ export function preloadPiano() {
   return sharedAudio.load;
 }
 
-export function usePianoAudio(muted: boolean, volume: number) {
+export function usePianoAudio(muted: boolean, volume: number, instrument: 'piano' | 'string' = 'piano') {
   const [loadStatus, setLoadStatus] = useState<LoadStatus>(sharedAudio.status);
   const activeVoicesRef = useRef(0);
   const activeStopsRef = useRef(new Set<() => void>());
@@ -146,8 +134,7 @@ export function usePianoAudio(muted: boolean, volume: number) {
 
   const prepare = useCallback(async () => {
     const context = getAudioContext();
-    void loadPiano();
-    await context.resume();
+    await Promise.all([loadPiano(), context.resume()]);
   }, [getAudioContext, loadPiano]);
 
   useEffect(() => {
@@ -166,30 +153,31 @@ export function usePianoAudio(muted: boolean, volume: number) {
     const context = getAudioContext();
     const safeLength = Math.max(0.01, length);
     const noteStart = Math.max(context.currentTime, startTime ?? context.currentTime);
-    if (sharedAudio.piano) {
-      if (sharedAudio.timbre === 'synth') {
+    const definition = sharedAudio.library?.definitions[instrument];
+    if (definition) {
+      if (sharedAudio.timbre !== instrument) {
         const fadeEnd = noteStart + CROSSFADE_SECONDS;
-        sharedAudio.pianoBus?.gain.setValueAtTime(0, noteStart);
-        sharedAudio.pianoBus?.gain.linearRampToValueAtTime(1, fadeEnd);
-        sharedAudio.synthBus?.gain.setValueAtTime(1, noteStart);
+        const pianoLevel = instrument === 'piano' ? 1 : 0;
+        const stringLevel = instrument === 'string' ? 1 : 0;
+        sharedAudio.pianoBus?.gain.setValueAtTime(sharedAudio.timbre === 'piano' ? 1 : 0, noteStart);
+        sharedAudio.pianoBus?.gain.linearRampToValueAtTime(pianoLevel, fadeEnd);
+        sharedAudio.stringBus?.gain.setValueAtTime(sharedAudio.timbre === 'string' ? 1 : 0, noteStart);
+        sharedAudio.stringBus?.gain.linearRampToValueAtTime(stringLevel, fadeEnd);
+        sharedAudio.synthBus?.gain.setValueAtTime(sharedAudio.timbre === 'synth' ? 1 : 0, noteStart);
         sharedAudio.synthBus?.gain.linearRampToValueAtTime(0, fadeEnd);
-        sharedAudio.timbre = 'piano';
+        sharedAudio.timbre = instrument;
       }
       const endVoice = beginVoice(context);
-      let stopNote: () => void = () => {};
+      let stopNote: () => void = () => undefined;
       const cleanup = () => {
         activeStopsRef.current.delete(stopNote);
         endVoice();
       };
-      const stop = sharedAudio.piano.start({
+      const stop = definition.start({
         note: pitch,
         time: noteStart,
         duration: safeLength,
-        decayTime: Math.max(0.025, Math.min(0.18, safeLength * 0.4)),
-        velocity: Math.round(
-          PIANO_VELOCITY_RANGE[0]
-          + (PIANO_VELOCITY_RANGE[1] - PIANO_VELOCITY_RANGE[0]) * volume / 100,
-        ),
+        velocity: definition.velocity(volume),
         onEnded: cleanup,
       });
       stopNote = () => stop(context.currentTime);
@@ -233,7 +221,7 @@ export function usePianoAudio(muted: boolean, volume: number) {
     activeStopsRef.current.add(stopNote);
     oscillator.start(now);
     oscillator.stop(releaseEnd + 0.002);
-  }, [beginVoice, getAudioContext, volume]);
+  }, [beginVoice, getAudioContext, instrument, volume]);
 
   const stopAll = useCallback(() => {
     activeStopsRef.current.forEach(stop => stop());
