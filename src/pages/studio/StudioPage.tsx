@@ -5,6 +5,7 @@ import { MidiImportButton, type ImportedMidi, type MidiVariant, type MidiVersion
 import { PianoRoll } from '../../features/piano-roll';
 import { PlaybackControls, usePlayback } from '../../features/playback';
 import { JianpuView } from '../../features/score';
+import { LanguageButton, useI18n } from '../../shared/i18n';
 
 type StudioPageProps = {
   initialMidi?: ImportedMidi;
@@ -22,6 +23,7 @@ function toMidiVariant(midi: ImportedMidi): MidiVariant {
 }
 
 export function StudioPage({ initialMidi, onBack }: StudioPageProps) {
+  const { t } = useI18n();
   const initialMidiVersion = initialMidi?.defaultMidiVersion ?? (initialMidi?.variants?.quantized ? 'quantized' : 'original');
   const [notes, setNotes] = useState<Note[]>(() => initialMidi?.notes ?? createDemoNotes());
   const [bpm, setBpm] = useState(initialMidi?.bpm ?? 92);
@@ -29,7 +31,7 @@ export function StudioPage({ initialMidi, onBack }: StudioPageProps) {
   const [volume, setVolume] = useState(72);
   const [muted, setMuted] = useState(false);
   const [gridDelay, setGridDelay] = useState(initialMidi?.backgroundDelayMs ?? 0);
-  const [loadedName, setLoadedName] = useState(initialMidi?.name ?? 'Demo arrangement');
+  const [loadedName, setLoadedName] = useState(initialMidi?.name ?? '');
   const [labelMode, setLabelMode] = useState<LabelMode>('name');
   const [viewMode, setViewMode] = useState<ViewMode>('roll');
   const [controlsCollapsed, setControlsCollapsed] = useState(true);
@@ -40,9 +42,9 @@ export function StudioPage({ initialMidi, onBack }: StudioPageProps) {
   const [audioUrls, setAudioUrls] = useState(() => initialMidi?.audioUrls ?? { original: null, piano: null });
   const playback = usePlayback(notes, muted, volume, audioSource, audioUrls);
   const loadStatusLabel = {
-    loading: '加载中',
-    ready: '已就绪',
-    error: '加载失败',
+    loading: t('studio.loading'),
+    ready: t('studio.ready'),
+    error: t('studio.loadError'),
   }[playback.loadStatus];
 
   const handleImport = (midi: ImportedMidi) => {
@@ -76,10 +78,10 @@ export function StudioPage({ initialMidi, onBack }: StudioPageProps) {
 
   return <main className="app">
     <header className="topbar">
-      {onBack ? <button className="brand brand-back" type="button" onClick={onBack} aria-label="Back to library"><ArrowLeft size={17} /><span className="brand-mark">MV</span><span><strong>MuVisual</strong><small>PIANO ROLL STUDIO</small></span></button>
-        : <div className="brand"><span className="brand-mark">MV</span><div><strong>MuVisual</strong><span>PIANO ROLL STUDIO</span></div></div>}
-      <div className={`session timbre-status ${playback.loadStatus}`} role="status" aria-live="polite"><span className="status-dot" />MIDI 音色 · {loadStatusLabel} <span className="divider" /><span className="loaded-name">{loadedName}</span></div>
-      <MidiImportButton onImport={handleImport} />
+      {onBack ? <button className="brand brand-back" type="button" onClick={onBack} aria-label={t('studio.back')}><ArrowLeft size={17} /><span className="brand-mark">MV</span><span><strong>MuVisual</strong><small>{t('studio.tagline')}</small></span></button>
+        : <div className="brand"><span className="brand-mark">MV</span><div><strong>MuVisual</strong><span>{t('studio.tagline')}</span></div></div>}
+      <div className={`session timbre-status ${playback.loadStatus}`} role="status" aria-live="polite"><span className="status-dot" />{t('studio.timbre')} · {loadStatusLabel} <span className="divider" /><span className="loaded-name">{loadedName || t('studio.demoArrangement')}</span></div>
+      <div className="header-actions"><LanguageButton /><MidiImportButton onImport={handleImport} /></div>
     </header>
     <section className={`workspace ${controlsCollapsed ? 'controls-collapsed' : ''}`}>
       <div className={`canvas-wrap ${viewMode === 'score' ? 'score-mode' : ''}`} onWheel={viewMode === 'roll' ? event => {
@@ -91,11 +93,11 @@ export function StudioPage({ initialMidi, onBack }: StudioPageProps) {
           ? <PianoRoll bpm={bpm} duration={playback.duration} elapsed={playback.elapsed} getElapsed={playback.getElapsed} gridDelay={gridDelay} keySignature={keySignature} labelMode={labelMode} notes={notes} onChordChange={setChordName} onSeek={playback.seek} />
           : <JianpuView bpm={bpm} gridDelay={gridDelay} notes={notes} getElapsed={playback.getElapsed} keySignature={keySignature} />}
         <div className="canvas-label">
-          <span>{viewMode === 'roll' ? 'LIVE VISUALIZER' : 'MIDI 简谱 · NUMBERED NOTATION'}</span>
-          <div className="view-switch" role="group" aria-label="Visualization and settings">
-            <button className={viewMode === 'roll' ? 'selected' : ''} onClick={() => setViewMode('roll')} aria-label="Piano roll view" title="Piano roll view"><Piano size={15} /></button>
-            <button className={viewMode === 'score' ? 'selected' : ''} onClick={() => setViewMode('score')} aria-label="MIDI numbered notation view" title="MIDI numbered notation view"><ListMusic size={15} /></button>
-            <button onClick={() => setControlsCollapsed(value => !value)} aria-label={controlsCollapsed ? 'Open settings panel' : 'Close settings panel'} title={controlsCollapsed ? 'Open settings panel' : 'Close settings panel'}>{controlsCollapsed ? <PanelRightOpen size={15} /> : <PanelRightClose size={15} />}</button>
+          <span>{t(viewMode === 'roll' ? 'studio.liveVisualizer' : 'studio.numberedNotation')}</span>
+          <div className="view-switch" role="group" aria-label={t('studio.viewSettings')}>
+            <button className={viewMode === 'roll' ? 'selected' : ''} onClick={() => setViewMode('roll')} aria-label={t('studio.pianoRollView')} title={t('studio.pianoRollView')}><Piano size={15} /></button>
+            <button className={viewMode === 'score' ? 'selected' : ''} onClick={() => setViewMode('score')} aria-label={t('studio.scoreView')} title={t('studio.scoreView')}><ListMusic size={15} /></button>
+            <button onClick={() => setControlsCollapsed(value => !value)} aria-label={t(controlsCollapsed ? 'studio.openSettings' : 'studio.closeSettings')} title={t(controlsCollapsed ? 'studio.openSettings' : 'studio.closeSettings')}>{controlsCollapsed ? <PanelRightOpen size={15} /> : <PanelRightClose size={15} />}</button>
           </div>
         </div>
         {viewMode === 'roll' && <div className={`chord-display ${chordName ? 'visible' : ''}`} aria-live="polite">{chordName ?? ''}</div>}
@@ -130,6 +132,6 @@ export function StudioPage({ initialMidi, onBack }: StudioPageProps) {
         />
       </aside>
     </section>
-    <footer><span>SMPLR AUDIO ENGINE · @TONEJS/MIDI PARSER</span><span>88 KEYS · A0 — C8</span></footer>
+    <footer><span>{t('studio.footerEngine')}</span><span>{t('studio.footerKeys')}</span></footer>
   </main>;
 }

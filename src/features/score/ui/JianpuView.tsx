@@ -1,6 +1,7 @@
 import { memo, useEffect, useMemo, useRef } from 'react';
 import { numberForPitch } from '../../../entities/music/lib/pitch';
 import type { Note } from '../../../entities/music/model/types';
+import { useI18n } from '../../../shared/i18n';
 
 type Voice = 'high' | 'low';
 type QuantizedNotes = Map<string, Note>;
@@ -72,6 +73,7 @@ type JianpuViewProps = {
 };
 
 export const JianpuView = memo(function JianpuView({ bpm, gridDelay, getElapsed, notes, keySignature }: JianpuViewProps) {
+  const { t } = useI18n();
   const scrollRef = useRef<HTMLDivElement>(null);
   const systemRefs = useRef<Array<HTMLElement | null>>([]);
   const rowRefs = useRef<Array<HTMLDivElement | null>>([]);
@@ -135,8 +137,8 @@ export const JianpuView = memo(function JianpuView({ bpm, gridDelay, getElapsed,
   return <div className="score-stage" ref={scrollRef} data-tempo={bpm} data-background-delay={gridDelay}>
     <div className="score-sheet">
       <div className="score-heading">
-        <div><span>MIDI NUMBERED SCORE</span><strong>1 = {keySignature.replace(':', ' · ')}</strong></div>
-        <div className="score-meta">16TH QUANTIZE · C4 VOICE SPLIT</div>
+        <div><span>{t('score.title')}</span><strong>1 = {keySignature.replace(':', ' · ')}</strong></div>
+        <div className="score-meta">{t('score.meta')}</div>
       </div>
       {systems.map((system, systemIndex) => {
         return <section
@@ -145,7 +147,7 @@ export const JianpuView = memo(function JianpuView({ bpm, gridDelay, getElapsed,
           data-active-system="false"
           ref={element => { systemRefs.current[systemIndex] = element; }}
         >
-          <div className="staff-labels"><span>HIGH</span><span>LOW</span></div>
+          <div className="staff-labels"><span>{t('score.high')}</span><span>{t('score.low')}</span></div>
           <div className="score-rows" ref={element => { rowRefs.current[systemIndex] = element; }}>
             {(['high', 'low'] as const).map(voice => <div className="score-row" key={voice}>
               {system.map(measure => <div className="score-measure" key={measure}>

@@ -1,6 +1,7 @@
-import { ArrowUpRight, AudioLines, FileMusic, LoaderCircle, Search, Sparkles } from 'lucide-react';
+import { ArrowUpRight, AudioLines, FileMusic, LoaderCircle, Search, Sparkles, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { MidiImportButton, parseMidiFile, type ImportedMidi } from '../../features/midi-import';
+import { LanguageButton, useI18n, type TranslationKey } from '../../shared/i18n';
 import { getLibrary, type LibraryItem } from './api';
 
 const BAR_COUNT = 30;
@@ -13,8 +14,8 @@ function waveform(id: string) {
   });
 }
 
-function formatSize(bytes: number) {
-  if (!bytes) return 'MIDI READY';
+function formatSize(bytes: number, midiReady: string) {
+  if (!bytes) return midiReady;
   return `${Math.max(1, Math.round(bytes / 1024))} KB`;
 }
 
@@ -24,11 +25,17 @@ type LibraryPageProps = {
 };
 
 export function LibraryPage({ onOpenMidi, onHome }: LibraryPageProps) {
+  const { language, t } = useI18n();
   const [items, setItems] = useState<LibraryItem[]>([]);
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [openingId, setOpeningId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ key: TranslationKey; title?: string } | null>(null);
+
+  const goHome = () => {
+    setQuery('');
+    onHome?.();
+  };
 
   useEffect(() => {
     const controller = new AbortController();
@@ -37,7 +44,7 @@ export function LibraryPage({ onOpenMidi, onHome }: LibraryPageProps) {
         const result = await getLibrary(controller.signal);
         setItems(result.items);
       } catch (loadError) {
-        if ((loadError as Error).name !== 'AbortError') setError('无法连接素材库，请确认后端服务已启动。');
+        if ((loadError as Error).name !== 'AbortError') setError({ key: 'library.connectionError' });
       } finally {
         if (!controller.signal.aborted) setLoading(false);
       }
@@ -47,10 +54,11 @@ export function LibraryPage({ onOpenMidi, onHome }: LibraryPageProps) {
   }, []);
 
   const filteredItems = useMemo(() => {
-    const normalized = query.trim().toLocaleLowerCase('zh-CN');
+    const locale = language === 'zh' ? 'zh-CN' : 'en';
+    const normalized = query.trim().toLocaleLowerCase(locale);
     if (!normalized) return items;
-    return items.filter(item => `${item.title} ${item.album}`.toLocaleLowerCase('zh-CN').includes(normalized));
-  }, [items, query]);
+    return items.filter(item => `${item.title} ${item.album}`.toLocaleLowerCase(locale).includes(normalized));
+  }, [items, language, query]);
 
   const openTrack = async (item: LibraryItem) => {
     if (!item.midiUrl || openingId) return;
@@ -81,42 +89,41 @@ export function LibraryPage({ onOpenMidi, onHome }: LibraryPageProps) {
         },
       });
     } catch {
-      setError(`无法打开《${item.title}》，请稍后重试。`);
+      setError({ key: 'library.openError', title: item.title });
       setOpeningId(null);
     }
   };
 
   return <main className="library-app">
     <header className="library-header">
-      <button className="library-brand" type="button" aria-label="MuVisual home" onClick={onHome}>
+      <button className="library-brand" type="button" aria-label={t('library.home')} onClick={goHome}>
         <span className="brand-symbol"><AudioLines size={18} /></span>
-        <span><strong>MuVisual</strong><small>MAKE MUSIC VISIBLE</small></span>
+        <span><strong>MuVisual</strong><small>{t('library.tagline')}</small></span>
       </button>
 
-      <label className="library-search">
-        <span className="sr-only">搜索曲目或专辑</span>
+      <div className="library-search" role="search">
         <Search size={18} aria-hidden="true" />
-        <input value={query} onChange={event => setQuery(event.target.value)} placeholder="搜索曲目或专辑" />
-        {query && <kbd>{filteredItems.length}</kbd>}
-      </label>
+        <input value={query} onChange={event => setQuery(event.target.value)} placeholder={t('library.search')} aria-label={t('library.search')} />
+        {query && <button className="search-clear" type="button" onClick={() => setQuery('')} aria-label={t('library.clearSearch')} title={t('library.clearSearch')}><X size={16} aria-hidden="true" /></button>}
+      </div>
 
-      <MidiImportButton onImport={onOpenMidi} />
+      <div className="header-actions"><LanguageButton /><MidiImportButton onImport={onOpenMidi} /></div>
     </header>
 
     <section className="library-content" aria-labelledby="library-title">
       <div className="library-heading">
         <div>
-          <span className="section-kicker"><Sparkles size={13} /> VISUAL COLLECTION</span>
-          <h1 id="library-title">Library</h1>
-          <p>选择一首曲目，进入可视化演奏空间。</p>
+          <span className="section-kicker"><Sparkles size={13} /> {t('library.kicker')}</span>
+          <h1 id="library-title">{t('library.title')}</h1>
+          <p>{t('library.description')}</p>
         </div>
-        <div className="library-count"><strong>{String(filteredItems.length).padStart(2, '0')}</strong><span>ARRANGEMENTS</span></div>
+        <div className="library-count"><strong>{String(filteredItems.length).padStart(2, '0')}</strong><span>{t('library.arrangements')}</span></div>
       </div>
 
-      {error && <div className="library-alert" role="alert">{error}</div>}
+      {error && <div className="library-alert" role="alert">{t(error.key, error.title ? { title: error.title } : undefined)}</div>}
 
-      {loading ? <div className="library-state"><LoaderCircle className="spin" size={24} /><span>正在读取曲库</span></div>
-        : filteredItems.length === 0 ? <div className="library-state"><Search size={24} /><span>没有找到“{query}”</span></div>
+      {loading ? <div className="library-state"><LoaderCircle className="spin" size={24} /><span>{t('library.loading')}</span></div>
+        : filteredItems.length === 0 ? <div className="library-state"><Search size={24} /><span>{t('library.noResults', { query })}</span></div>
           : <div className="library-grid">
             {filteredItems.map((item, index) => <button
               className="track-card"
@@ -124,7 +131,7 @@ export function LibraryPage({ onOpenMidi, onHome }: LibraryPageProps) {
               type="button"
               disabled={!item.midiUrl || openingId !== null}
               onClick={() => void openTrack(item)}
-              aria-label={`打开 ${item.title}`}
+              aria-label={t('library.openTrack', { title: item.title })}
             >
               <span className="track-index">{String(index + 1).padStart(2, '0')}</span>
               <span className="track-arrow">{openingId === item.id ? <LoaderCircle className="spin" size={17} /> : <ArrowUpRight size={17} />}</span>
@@ -134,13 +141,13 @@ export function LibraryPage({ onOpenMidi, onHome }: LibraryPageProps) {
                 <small>{item.album}</small>
               </span>
               <span className="track-meta">
-                <span><FileMusic size={13} /> {formatSize(item.size)}</span>
-                <span>{item.pianoUrl ? 'PIANO + MIDI' : 'MIDI'}</span>
+                <span><FileMusic size={13} /> {formatSize(item.size, t('library.midiReady'))}</span>
+                <span>{item.pianoUrl ? t('library.pianoAndMidi') : 'MIDI'}</span>
               </span>
             </button>)}
           </div>}
     </section>
 
-    <footer className="library-footer"><span>MU VISUAL ARCHIVE</span><span>{items.length} TRACKS · LOCAL COLLECTION</span></footer>
+    <footer className="library-footer"><span>{t('library.archive')}</span><span>{t('library.trackCount', { count: items.length })}</span></footer>
   </main>;
 }

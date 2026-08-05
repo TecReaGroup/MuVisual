@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { END_MIDI, isWhitePitch, numberForPitch, PITCH_NAMES, START_MIDI } from '../../../entities/music/lib/pitch';
 import type { LabelMode, Note } from '../../../entities/music/model/types';
+import { useI18n } from '../../../shared/i18n';
 import { recognizeChord } from '../model/recognizeChord';
 
 type PianoKey = { x: number; w: number; h: number; black: boolean };
@@ -46,6 +47,7 @@ export function PianoRoll({
   onChordChange,
   onSeek,
 }: PianoRollProps) {
+  const { t } = useI18n();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const sortedNotes = useMemo(() => [...notes].sort((first, second) => first.start - second.start), [notes]);
   const maxNoteDuration = useMemo(
@@ -227,7 +229,7 @@ export function PianoRoll({
       step="0.01"
       value={Math.min(elapsed, duration)}
       onChange={event => onSeek(+event.target.value)}
-      aria-label="Scroll piano visualizer playback position"
+      aria-label={t('pianoRoll.scroll')}
     />
   </>;
 }
