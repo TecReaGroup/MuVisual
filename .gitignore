@@ -37,3 +37,5 @@ Desktop.ini
 *.mp3
 *.wav
 *.m4a
+!public/audio/**/*.m4a
+!public/audio/**/*.ogg

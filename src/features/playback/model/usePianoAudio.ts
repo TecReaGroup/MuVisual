@@ -4,6 +4,7 @@ import { CacheStorage, LAYERS, SplendidGrandPiano } from 'smplr';
 type LoadStatus = 'loading' | 'ready' | 'error';
 
 const PIANO_CACHE_NAME = 'muvisual-piano-v1';
+const PIANO_BASE_URL = `${import.meta.env.BASE_URL}audio/splendid-grand-piano`;
 const PIANO_VELOCITY_RANGE: [number, number] = [68, 84];
 const CROSSFADE_SECONDS = 0.22;
 
@@ -12,6 +13,7 @@ const pianoLayer = LAYERS.find(layer => (
   && layer.vel_range[1] === PIANO_VELOCITY_RANGE[1]
 ));
 const pianoNotes = (pianoLayer?.samples ?? [])
+  .filter(([, name]) => !String(name).includes('#'))
   .filter((_, index, samples) => index % 2 === 0 || index === samples.length - 1)
   .map(([note]) => Number(note));
 
@@ -75,6 +77,7 @@ export function preloadPiano() {
 
   notifySharedStatus('loading');
   const piano = new SplendidGrandPiano(context, {
+    baseUrl: PIANO_BASE_URL,
     destination: sharedAudio.pianoBus,
     storage: new CacheStorage(PIANO_CACHE_NAME),
     notesToLoad: {

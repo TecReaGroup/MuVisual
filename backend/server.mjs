@@ -17,6 +17,8 @@ const staticContentTypes = {
   '.js': 'text/javascript; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
   '.map': 'application/json; charset=utf-8',
+  '.m4a': 'audio/mp4',
+  '.ogg': 'audio/ogg',
   '.png': 'image/png',
   '.svg': 'image/svg+xml',
   '.webp': 'image/webp',
@@ -90,6 +92,9 @@ async function streamFrontend(response, pathname) {
       'Content-Type': staticContentTypes[extname(filePath).toLowerCase()] ?? 'application/octet-stream',
       'Content-Length': fileStats.size,
       'Cache-Control': pathname.startsWith('/assets/')
+        || pathname.startsWith('/audio/')
+        || pathname.startsWith('/fonts/')
+        || pathname === '/favicon.svg'
         ? 'public, max-age=31536000, immutable'
         : 'no-cache',
     });
