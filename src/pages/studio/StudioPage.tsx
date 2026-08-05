@@ -1,4 +1,4 @@
-import { ArrowLeft, ListMusic, PanelRightClose, PanelRightOpen, Piano } from 'lucide-react';
+import { ArrowLeft, AudioLines, ListMusic, PanelRightClose, PanelRightOpen, Piano } from 'lucide-react';
 import { useState } from 'react';
 import { createDemoNotes, type AudioSource, type LabelMode, type Note, type ViewMode } from '../../entities/music';
 import { MidiImportButton, type ImportedMidi, type MidiVariant, type MidiVersion } from '../../features/midi-import';
@@ -78,8 +78,8 @@ export function StudioPage({ initialMidi, onBack }: StudioPageProps) {
 
   return <main className="app">
     <header className="topbar">
-      {onBack ? <button className="brand brand-back" type="button" onClick={onBack} aria-label={t('studio.back')}><ArrowLeft size={17} /><span className="brand-mark">MV</span><span><strong>MuVisual</strong><small>{t('studio.tagline')}</small></span></button>
-        : <div className="brand"><span className="brand-mark">MV</span><div><strong>MuVisual</strong><span>{t('studio.tagline')}</span></div></div>}
+      {onBack ? <button className="brand brand-back" type="button" onClick={onBack} aria-label={t('studio.back')}><ArrowLeft size={17} /><span className="brand-symbol"><AudioLines size={18} /></span><span><strong>MuVisual</strong><small>{t('studio.tagline')}</small></span></button>
+        : <div className="brand"><span className="brand-symbol"><AudioLines size={18} /></span><div><strong>MuVisual</strong><span>{t('studio.tagline')}</span></div></div>}
       <div className={`session timbre-status ${playback.loadStatus}`} role="status" aria-live="polite"><span className="status-dot" />{t('studio.timbre')} · {loadStatusLabel} <span className="divider" /><span className="loaded-name">{loadedName || t('studio.demoArrangement')}</span></div>
       <div className="header-actions"><LanguageButton /><MidiImportButton onImport={handleImport} /></div>
     </header>

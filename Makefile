@@ -23,7 +23,7 @@ build:
 preview:
 	npm run preview
 
-docker:
+docker-build:
 	docker compose up -d --build
 
 docker-push:
