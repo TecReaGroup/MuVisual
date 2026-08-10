@@ -1,6 +1,7 @@
 export type LibraryItem = {
   album: string;
   audioUrl: string | null;
+  beatUrl: string | null;
   id: string;
   midiUrl: string | null;
   originalMidiUrl: string | null;
@@ -10,6 +11,17 @@ export type LibraryItem = {
   title: string;
   updatedAt: string | null;
 };
+
+export async function getBeatAnalysis(url: string | null) {
+  if (!url) return null;
+  const response = await fetch(url);
+  if (!response.ok) return null;
+  const value = await response.json() as { beats?: unknown; downbeats?: unknown };
+  if (!Array.isArray(value.beats) || !Array.isArray(value.downbeats)) return null;
+  const beats = value.beats.filter((time): time is number => typeof time === 'number' && Number.isFinite(time));
+  const downbeats = value.downbeats.filter((time): time is number => typeof time === 'number' && Number.isFinite(time));
+  return beats.length >= 2 ? { beats, downbeats } : null;
+}
 
 type LibraryResponse = {
   items: LibraryItem[];

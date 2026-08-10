@@ -1,5 +1,5 @@
 import { Midi } from '@tonejs/midi';
-import type { Hand, Note, TempoPoint } from '../../../entities/music/model/types';
+import type { BeatAnalysis, Hand, Note, TempoPoint } from '../../../entities/music/model/types';
 
 export type MidiVersion = 'original' | 'quantized';
 
@@ -13,6 +13,7 @@ export type MidiVariant = {
 
 export type ImportedMidi = MidiVariant & {
   audioUrls?: { original: string | null; piano: string | null };
+  beatAnalysis?: BeatAnalysis | null;
   defaultMidiVersion?: MidiVersion;
   name: string;
   variants?: Partial<Record<MidiVersion, MidiVariant>>;

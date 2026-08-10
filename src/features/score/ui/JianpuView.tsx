@@ -1,20 +1,17 @@
 import { memo, useEffect, useMemo, useRef } from 'react';
 import { numberForPitch } from '../../../entities/music/lib/pitch';
+import type { MusicalTimeline } from '../../../entities/music/lib/musicalTimeline';
 import type { Note } from '../../../entities/music/model/types';
 import { useI18n } from '../../../shared/i18n';
 
 type Voice = 'high' | 'low';
 type QuantizedNotes = Map<string, Note>;
 
-function beatForSettings(time: number, bpm: number, gridDelay: number) {
-  return (time - gridDelay / 1000) * bpm / 60;
-}
-
-function quantizeNotes(notes: Note[], bpm: number, gridDelay: number) {
+function quantizeNotes(notes: Note[], timeline: MusicalTimeline) {
   const result: QuantizedNotes = new Map();
   notes.forEach(note => {
     const voice: Voice = note.pitch >= 60 ? 'high' : 'low';
-    const step = Math.max(0, Math.round(beatForSettings(note.start, bpm, gridDelay) * 4));
+    const step = Math.max(0, Math.round(timeline.positionAt(note.start) * 4));
     const key = `${voice}:${step}`;
     const existing = result.get(key);
     if (!existing || note.pitch < existing.pitch) result.set(key, note);
@@ -66,20 +63,20 @@ function Beat({ beat, voice, notes, keySignature }: { beat: number; voice: Voice
 
 type JianpuViewProps = {
   bpm: number;
-  gridDelay: number;
   getElapsed: () => number;
   keySignature: string;
   notes: Note[];
+  timeline: MusicalTimeline;
 };
 
-export const JianpuView = memo(function JianpuView({ bpm, gridDelay, getElapsed, notes, keySignature }: JianpuViewProps) {
+export const JianpuView = memo(function JianpuView({ bpm, getElapsed, notes, keySignature, timeline }: JianpuViewProps) {
   const { t } = useI18n();
   const scrollRef = useRef<HTMLDivElement>(null);
   const systemRefs = useRef<Array<HTMLElement | null>>([]);
   const rowRefs = useRef<Array<HTMLDivElement | null>>([]);
   const cursorRefs = useRef<Array<HTMLSpanElement | null>>([]);
-  const quantized = useMemo(() => quantizeNotes(notes, bpm, gridDelay), [bpm, gridDelay, notes]);
-  const lastBeat = Math.max(0, ...notes.map(note => beatForSettings(note.start, bpm, gridDelay)));
+  const quantized = useMemo(() => quantizeNotes(notes, timeline), [notes, timeline]);
+  const lastBeat = Math.max(0, ...notes.map(note => timeline.positionAt(note.start)));
   const totalMeasures = Math.max(1, Math.ceil((lastBeat + 2) / 4));
   const systems = useMemo(() => Array.from({ length: Math.ceil(totalMeasures / 2) }, (_, system) =>
     [system * 2, system * 2 + 1].filter(measure => measure < totalMeasures)), [totalMeasures]);
@@ -98,7 +95,7 @@ export const JianpuView = memo(function JianpuView({ bpm, gridDelay, getElapsed,
     measureSystems();
 
     const drawCursor = () => {
-      const currentBeat = Math.max(0, beatForSettings(getElapsed(), bpm, gridDelay));
+      const currentBeat = Math.max(0, timeline.positionAt(getElapsed()));
       const nextSystemIndex = Math.max(0, Math.min(systems.length - 1, Math.floor(currentBeat / 8)));
 
       if (nextSystemIndex !== activeSystemIndex) {
@@ -132,9 +129,9 @@ export const JianpuView = memo(function JianpuView({ bpm, gridDelay, getElapsed,
       cancelAnimationFrame(animationFrame);
       resizeObserver.disconnect();
     };
-  }, [bpm, getElapsed, gridDelay, systems]);
+  }, [getElapsed, systems, timeline]);
 
-  return <div className="score-stage" ref={scrollRef} data-tempo={bpm} data-background-delay={gridDelay}>
+  return <div className="score-stage" ref={scrollRef} data-tempo={bpm}>
     <div className="score-sheet">
       <div className="score-heading">
         <div><span>{t('score.title')}</span><strong>1 = {keySignature.replace(':', ' · ')}</strong></div>

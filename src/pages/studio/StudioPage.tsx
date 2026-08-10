@@ -1,6 +1,6 @@
 import { ArrowLeft, AudioLines, ListMusic, PanelRightClose, PanelRightOpen, Piano } from 'lucide-react';
-import { useState } from 'react';
-import { createDemoNotes, type AudioSource, type LabelMode, type MidiInstrument, type Note, type ViewMode } from '../../entities/music';
+import { useMemo, useState } from 'react';
+import { createDemoNotes, createMusicalTimeline, type AudioSource, type BeatAnalysis, type LabelMode, type MidiInstrument, type Note, type ViewMode } from '../../entities/music';
 import { MidiImportButton, type ImportedMidi, type MidiVariant, type MidiVersion } from '../../features/midi-import';
 import { PianoRoll } from '../../features/piano-roll';
 import { PlaybackControls, usePlayback } from '../../features/playback';
@@ -41,6 +41,12 @@ export function StudioPage({ initialMidi, onBack }: StudioPageProps) {
   const [audioSource, setAudioSource] = useState<AudioSource>('midi');
   const [midiInstrument, setMidiInstrument] = useState<MidiInstrument>('piano');
   const [audioUrls, setAudioUrls] = useState(() => initialMidi?.audioUrls ?? { original: null, piano: null });
+  const [beatAnalysis, setBeatAnalysis] = useState<BeatAnalysis | null>(() => initialMidi?.beatAnalysis ?? null);
+  const [beatEnhance, setBeatEnhance] = useState(true);
+  const timeline = useMemo(
+    () => createMusicalTimeline(bpm, gridDelay, beatEnhance ? beatAnalysis : null),
+    [beatAnalysis, beatEnhance, bpm, gridDelay],
+  );
   const playback = usePlayback(notes, muted, volume, audioSource, midiInstrument, audioUrls);
   const loadStatusLabel = {
     loading: t('studio.loading'),
@@ -59,6 +65,7 @@ export function StudioPage({ initialMidi, onBack }: StudioPageProps) {
     setMidiVariants({ original: toMidiVariant(midi) });
     setAudioSource('midi');
     setAudioUrls({ original: null, piano: null });
+    setBeatAnalysis(null);
   };
 
   const handleMidiVersionChange = (version: MidiVersion) => {
@@ -87,12 +94,13 @@ export function StudioPage({ initialMidi, onBack }: StudioPageProps) {
     <section className={`workspace ${controlsCollapsed ? 'controls-collapsed' : ''}`}>
       <div className={`canvas-wrap ${viewMode === 'score' ? 'score-mode' : ''}`} onWheel={viewMode === 'roll' ? event => {
         event.preventDefault();
-        const beatStep = 60 / bpm;
+        const currentPosition = timeline.positionAt(playback.getElapsed());
+        const beatStep = timeline.timeAt(currentPosition + 1) - timeline.timeAt(currentPosition);
         playback.seek(Math.max(0, Math.min(playback.duration, playback.getElapsed() + event.deltaY / 240 * beatStep)));
       } : undefined}>
         {viewMode === 'roll'
-          ? <PianoRoll bpm={bpm} duration={playback.duration} elapsed={playback.elapsed} getElapsed={playback.getElapsed} gridDelay={gridDelay} keySignature={keySignature} labelMode={labelMode} notes={notes} onChordChange={setChordName} onSeek={playback.seek} />
-          : <JianpuView bpm={bpm} gridDelay={gridDelay} notes={notes} getElapsed={playback.getElapsed} keySignature={keySignature} />}
+          ? <PianoRoll duration={playback.duration} elapsed={playback.elapsed} getElapsed={playback.getElapsed} keySignature={keySignature} labelMode={labelMode} notes={notes} timeline={timeline} onChordChange={setChordName} onSeek={playback.seek} />
+          : <JianpuView bpm={bpm} notes={notes} getElapsed={playback.getElapsed} keySignature={keySignature} timeline={timeline} />}
         <div className="canvas-label">
           <span>{t(viewMode === 'roll' ? 'studio.liveVisualizer' : 'studio.numberedNotation')}</span>
           <div className="view-switch" role="group" aria-label={t('studio.viewSettings')}>
@@ -109,6 +117,8 @@ export function StudioPage({ initialMidi, onBack }: StudioPageProps) {
           midiInstrument={midiInstrument}
           availableAudioSources={{ midi: true, piano: Boolean(audioUrls.piano), original: Boolean(audioUrls.original) }}
           availableMidiVersions={{ original: Boolean(midiVariants.original), quantized: Boolean(midiVariants.quantized) }}
+          beatEnhanceAvailable={Boolean(beatAnalysis)}
+          beatEnhanceEnabled={beatEnhance}
           bpm={bpm}
           duration={playback.duration}
           elapsed={playback.elapsed}
@@ -121,6 +131,7 @@ export function StudioPage({ initialMidi, onBack }: StudioPageProps) {
           playing={playback.playing}
           volume={volume}
           onAudioSourceChange={handleAudioSourceChange}
+          onBeatEnhanceChange={setBeatEnhance}
           onMidiInstrumentChange={instrument => { playback.reset(); setMidiInstrument(instrument); }}
           onBpmChange={setBpm}
           onGridDelayChange={setGridDelay}

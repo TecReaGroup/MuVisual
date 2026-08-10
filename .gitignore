@@ -33,6 +33,7 @@ test-results/
 Thumbs.db
 Desktop.ini
 
+/backend/data/visual/**/*.json
 *.mid
 *.mp3
 *.wav

@@ -2,7 +2,7 @@ import { ArrowUpRight, AudioLines, FileMusic, LoaderCircle, Search, Sparkles, X 
 import { useEffect, useMemo, useState } from 'react';
 import { MidiImportButton, parseMidiFile, type ImportedMidi } from '../../features/midi-import';
 import { LanguageButton, useI18n, type TranslationKey } from '../../shared/i18n';
-import { getLibrary, type LibraryItem } from './api';
+import { getBeatAnalysis, getLibrary, type LibraryItem } from './api';
 
 const BAR_COUNT = 30;
 
@@ -72,15 +72,17 @@ export function LibraryPage({ onOpenMidi, onHome }: LibraryPageProps) {
         const file = new File([await response.blob()], `${item.title}_${suffix}.mid`, { type: 'audio/midi' });
         return parseMidiFile(file);
       };
-      const [original, quantized] = await Promise.all([
+      const [original, quantized, beatAnalysis] = await Promise.all([
         loadMidi(item.originalMidiUrl, 'original'),
         loadMidi(item.quantizedMidiUrl, 'quantized'),
+        getBeatAnalysis(item.beatUrl),
       ]);
       const selected = quantized ?? original;
       if (!selected) throw new Error('MIDI request failed');
       onOpenMidi({
         ...selected,
         audioUrls: { original: item.audioUrl, piano: item.pianoUrl },
+        beatAnalysis,
         defaultMidiVersion: quantized ? 'quantized' : 'original',
         name: item.title,
         variants: {

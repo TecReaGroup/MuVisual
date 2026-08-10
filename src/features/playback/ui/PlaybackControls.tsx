@@ -1,4 +1,4 @@
-import { Disc3, Minus, Music2, Pause, Piano, Play, Plus, RotateCcw, Volume2, VolumeX } from 'lucide-react';
+import { AudioWaveform, Disc3, Minus, Music2, Pause, Piano, Play, Plus, RotateCcw, Volume2, VolumeX } from 'lucide-react';
 import { KEY_SIGNATURE_OPTIONS } from '../../../entities/music/lib/pitch';
 import type { AudioSource, LabelMode, MidiInstrument } from '../../../entities/music/model/types';
 import { formatTime } from '../../../shared/lib/formatTime';
@@ -23,6 +23,8 @@ type PlaybackControlsProps = {
   midiInstrument: MidiInstrument;
   availableAudioSources: Record<AudioSource, boolean>;
   availableMidiVersions: Record<'original' | 'quantized', boolean>;
+  beatEnhanceAvailable: boolean;
+  beatEnhanceEnabled: boolean;
   duration: number;
   elapsed: number;
   gridDelay: number;
@@ -35,6 +37,7 @@ type PlaybackControlsProps = {
   volume: number;
   onBpmChange: (bpm: number) => void;
   onAudioSourceChange: (source: AudioSource) => void;
+  onBeatEnhanceChange: (enabled: boolean) => void;
   onMidiInstrumentChange: (instrument: MidiInstrument) => void;
   onGridDelayChange: (delay: number) => void;
   onKeySignatureChange: (keySignature: string) => void;
@@ -49,6 +52,7 @@ type PlaybackControlsProps = {
 
 export function PlaybackControls(props: PlaybackControlsProps) {
   const { t } = useI18n();
+  const beatEnhanceActive = props.beatEnhanceEnabled && props.beatEnhanceAvailable;
   const changeBpm = (nextBpm: number) => props.onBpmChange(Math.max(30, Math.min(300, nextBpm)));
   const gridDelayMax = Math.max(2000, Math.ceil(props.gridDelay / 1000) * 1000);
 
@@ -76,26 +80,11 @@ export function PlaybackControls(props: PlaybackControlsProps) {
         <button className={props.labelMode === 'number' ? 'selected' : ''} onClick={() => props.onLabelModeChange('number')} aria-pressed={props.labelMode === 'number'}>1 2 3</button>
       </div>
     </div>
-    <div className="control tempo-control">
-      <div><span>{t('playback.tempo')}</span><b>{props.bpm}<small>BPM</small></b></div>
-      <input {...rangePointerHandlers} type="range" min="30" max="300" step="1" value={props.bpm} onChange={event => changeBpm(+event.target.value)} />
-      <div className="step-actions">
-        <button onClick={() => changeBpm(props.bpm + 1)} disabled={props.bpm >= 300} aria-label={t('playback.increaseTempo')}><Plus size={16} />1 BPM</button>
-        <button onClick={() => changeBpm(props.bpm - 1)} disabled={props.bpm <= 30} aria-label={t('playback.decreaseTempo')}><Minus size={16} />1 BPM</button>
-      </div>
-    </div>
-    <div className="control delay-control">
-      <div><span>{t('playback.backgroundDelay')}</span><b>{props.gridDelay}<small>MS</small></b></div>
-      <input {...rangePointerHandlers} type="range" min="0" max={gridDelayMax} step="10" value={props.gridDelay} onChange={event => props.onGridDelayChange(+event.target.value)} />
-      <div className="delay-actions step-actions">
-        <button onClick={() => props.onGridDelayChange(Math.min(gridDelayMax, props.gridDelay + 10))} disabled={props.gridDelay >= gridDelayMax} aria-label={t('playback.increaseDelay')}><Plus size={16} />10 MS</button>
-        <button onClick={() => props.onGridDelayChange(Math.max(0, props.gridDelay - 10))} disabled={props.gridDelay <= 0} aria-label={t('playback.decreaseDelay')}><Minus size={16} />10 MS</button>
-      </div>
-    </div>
     <div className="control">
       <div><span>{t('playback.masterVolume')}</span><b>{props.muted ? 0 : props.volume}<small>%</small></b></div>
       <input {...rangePointerHandlers} type="range" min="0" max="100" value={props.volume} onChange={event => props.onVolumeChange(+event.target.value)} />
     </div>
+    <button className="mute" onClick={() => props.onMutedChange(!props.muted)}>{props.muted ? <VolumeX size={17} /> : <Volume2 size={17} />}{t(props.muted ? 'playback.unmute' : 'playback.mute')}</button>
     <div className="audio-source-control">
       <span>{t('playback.audioSource')}</span>
       <div className="audio-source-switch" role="group" aria-label={t('playback.audioSource')}>
@@ -111,7 +100,37 @@ export function PlaybackControls(props: PlaybackControlsProps) {
         <option value="string">{t('playback.string')}</option>
       </select>
     </div>
-    <button className="mute" onClick={() => props.onMutedChange(!props.muted)}>{props.muted ? <VolumeX size={17} /> : <Volume2 size={17} />}{t(props.muted ? 'playback.unmute' : 'playback.mute')}</button>
+    <div className={`rhythm-controls ${beatEnhanceActive ? 'enhanced' : ''}`}>
+      <span className="rhythm-controls-label">{t('playback.rhythmControl')}</span>
+      <button
+        className={`beat-enhance ${beatEnhanceActive ? 'enabled' : ''}`}
+        type="button"
+        role="switch"
+        aria-checked={beatEnhanceActive}
+        disabled={!props.beatEnhanceAvailable}
+        onClick={() => props.onBeatEnhanceChange(!props.beatEnhanceEnabled)}
+      >
+        <AudioWaveform size={16} />
+        <span><strong>{t('playback.beatEnhance')}</strong><small>{t(props.beatEnhanceAvailable ? 'playback.beatDetected' : 'playback.beatUnavailable')}</small></span>
+        <i aria-hidden="true"><b /></i>
+      </button>
+      <div className="control tempo-control">
+        <div><span>{t('playback.tempo')}</span><b>{props.bpm}<small>BPM</small></b></div>
+        <input {...rangePointerHandlers} disabled={beatEnhanceActive} type="range" min="30" max="300" step="1" value={props.bpm} onChange={event => changeBpm(+event.target.value)} />
+        <div className="step-actions">
+          <button onClick={() => changeBpm(props.bpm + 1)} disabled={beatEnhanceActive || props.bpm >= 300} aria-label={t('playback.increaseTempo')}><Plus size={16} />1 BPM</button>
+          <button onClick={() => changeBpm(props.bpm - 1)} disabled={beatEnhanceActive || props.bpm <= 30} aria-label={t('playback.decreaseTempo')}><Minus size={16} />1 BPM</button>
+        </div>
+      </div>
+      <div className="control delay-control">
+        <div><span>{t('playback.backgroundDelay')}</span><b>{props.gridDelay}<small>MS</small></b></div>
+        <input {...rangePointerHandlers} disabled={beatEnhanceActive} type="range" min="0" max={gridDelayMax} step="10" value={props.gridDelay} onChange={event => props.onGridDelayChange(+event.target.value)} />
+        <div className="delay-actions step-actions">
+          <button onClick={() => props.onGridDelayChange(Math.min(gridDelayMax, props.gridDelay + 10))} disabled={beatEnhanceActive || props.gridDelay >= gridDelayMax} aria-label={t('playback.increaseDelay')}><Plus size={16} />10 MS</button>
+          <button onClick={() => props.onGridDelayChange(Math.max(0, props.gridDelay - 10))} disabled={beatEnhanceActive || props.gridDelay <= 0} aria-label={t('playback.decreaseDelay')}><Minus size={16} />10 MS</button>
+        </div>
+      </div>
+    </div>
     <div className="midi-version-control">
       <span>{t('playback.midiVersion')}</span>
       <div className="midi-version-switch" role="group" aria-label={t('playback.midiVersion')}>

@@ -17,6 +17,11 @@ export type TempoPoint = {
   bpm: number;
 };
 
+export type BeatAnalysis = {
+  beats: number[];
+  downbeats: number[];
+};
+
 export type LabelMode = 'name' | 'number';
 
 export type ViewMode = 'roll' | 'score';

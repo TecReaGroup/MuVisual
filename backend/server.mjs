@@ -47,6 +47,7 @@ async function readLibrary() {
     const quantizedMidi = files.find(file => file.name.toLowerCase().endsWith('_quantized.mid'));
     const pianoAudio = files.find(file => file.name.toLowerCase().endsWith('_piano.mp3'));
     const sourceAudio = files.find(file => file.name.toLowerCase().endsWith('.mp3') && !file.name.toLowerCase().endsWith('_piano.mp3'));
+    const beatAnalysis = files.find(file => file.name.toLowerCase().endsWith('_beat.json'));
     const primaryFile = quantizedMidi ?? sourceMidi ?? sourceAudio ?? pianoAudio;
     const fileStats = primaryFile ? await stat(join(folderPath, primaryFile.name)) : null;
     const { title, album } = splitFolderName(folder.name);
@@ -60,6 +61,7 @@ async function readLibrary() {
       originalMidiUrl: sourceMidi ? `/media/${id}/midi-original` : null,
       quantizedMidiUrl: quantizedMidi ? `/media/${id}/midi-quantized` : null,
       audioUrl: sourceAudio ? `/media/${id}/audio` : null,
+      beatUrl: beatAnalysis ? `/media/${id}/beats` : null,
       pianoUrl: pianoAudio ? `/media/${id}/piano` : null,
       size: fileStats?.size ?? 0,
       updatedAt: fileStats?.mtime.toISOString() ?? null,
@@ -118,6 +120,7 @@ async function findMedia(id, kind) {
     'midi-quantized': file => file.name.toLowerCase().endsWith('_quantized.mid'),
     audio: file => file.name.toLowerCase().endsWith('.mp3') && !file.name.toLowerCase().endsWith('_piano.mp3'),
     piano: file => file.name.toLowerCase().endsWith('_piano.mp3'),
+    beats: file => file.name.toLowerCase().endsWith('_beat.json'),
   };
   let file = kind === 'midi'
     ? files.find(matchers['midi-quantized']) ?? files.find(matchers['midi-original'])
@@ -127,7 +130,10 @@ async function findMedia(id, kind) {
 
 async function streamMedia(request, response, filePath) {
   const fileStats = await stat(filePath);
-  const contentType = extname(filePath).toLowerCase() === '.mp3' ? 'audio/mpeg' : 'audio/midi';
+  const extension = extname(filePath).toLowerCase();
+  const contentType = extension === '.mp3'
+    ? 'audio/mpeg'
+    : extension === '.json' ? 'application/json; charset=utf-8' : 'audio/midi';
   const range = request.headers.range;
 
   if (!range) {
@@ -186,7 +192,7 @@ const server = createServer(async (request, response) => {
       return;
     }
 
-    const mediaMatch = request.method === 'GET' && url.pathname.match(/^\/media\/([^/]+)\/(midi|midi-original|midi-quantized|audio|piano)$/);
+    const mediaMatch = request.method === 'GET' && url.pathname.match(/^\/media\/([^/]+)\/(midi|midi-original|midi-quantized|audio|piano|beats)$/);
     if (mediaMatch) {
       const filePath = await findMedia(mediaMatch[1], mediaMatch[2]);
       if (!filePath) {
