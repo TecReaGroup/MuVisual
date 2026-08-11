@@ -1,98 +1,108 @@
-# auth
+# Authentication
 
-1. 应用层中间件（Node/Express/Next 等）
-保护该项目服务全站：
+<http://localhost:5173/?access=密码>
 
-* Express 中间件：password-protected、staging-express 等（cookie + JWT）。
+MuVisual 使用前端登录页和后端 Session API。前端静态文件可以公开加载，认证只保护业务 API 和媒体资源。
 
-* Next.js：staging-next 或自己写 middleware。
+## 前端流程
 
-* 自己写一个简单的 session 中间件（密码存在环境变量，验证后 set cookie）。
+React 应用负责以下行为：
 
-示例思路（Express）：
+1. 启动时请求 `GET /api/auth/session` 检查当前 Cookie。
+2. 未认证时保存原访问地址，将浏览器地址切换到 `/login` 并显示 React 登录页。
+3. 登录页通过 `POST /auth/login` 提交密码；成功后恢复原访问地址。
+4. URL 带有 `?access=AUTH_PASSWORD` 时，前端立即从地址栏删除 `access`，再自动调用登录 API。
+5. 登录失败或会话失效时显示登录页，不渲染曲库和工作室页面。
 
-```JavaScript
-app.use(cookieParser());
-app.use((req, res, next) => {
-  if (req.cookies.auth === 'ok' || req.path === '/login') return next();
-  // 校验密码后设置 cookie
-});
+开发环境中，Vite 将 `/api`、`/auth` 和 `/media` 代理到 `http://localhost:8787`。因此需要同时运行：
+
+```bash
+npm run backend
+npm run dev
 ```
 
-<https://你的域名.com/?access=你的SHARE_TOKEN>
+浏览器访问 `http://localhost:5173`。生产环境由 Node 服务在 `8787` 端口同时提供构建后的前端文件和后端接口。
 
-把密码嵌入在 url 里面访问后自动获取 cookie，立刻跳转到干净的网址
-而不带密码的 url 需要手动输入 密码，需要编写一个简单的登录页，POST /auth/login 校验密码，成功后设置 cookie 并跳转
+## 后端接口
 
-## 方案
+### `GET /api/auth/session`
 
-推荐直接在现有 Node HTTP 服务中实现轻量 Session 网关，不引入 Express、JWT 或额外依赖。
+公开接口。返回当前 Session 状态：
 
-当前项目由 [backend/server.mjs](E:/Github/MuVisual/backend/server.mjs:142) 同时提供 API、媒体和生产环境前端文件，因此认证应放在解析 URL 后、所有路由处理之前。这样 `/api`、`/media`、HTML、JS 和音频资源都会被保护。
-
-建议流程：
-
-1. 环境变量保存 `SHARE_TOKEN`，服务启动时缺失则直接报错退出。
-2. 请求带 `?access=SHARE_TOKEN`：
-   * 使用恒定时间比较校验。
-   * 设置签名 Session Cookie，不要把原始密码写进 Cookie。
-   * 删除 URL 中的 `access` 参数。
-   * 返回 `303 Location: /原路径?其他参数`，立即跳转到干净地址。
-3. 请求已有有效 Cookie：正常进入现有路由。
-4. 未认证请求：
-   * `GET` 返回一个内嵌 CSS 的简单密码页面。
-   * `POST /auth/login` 校验密码，成功后设置 Cookie并跳转。
-   * API 请求也可以统一返回登录页；若需要明确区分，则对 `/api/*` 返回 `401 JSON`。
-5. 可选增加 `POST /auth/logout` 清除 Cookie。
-
-Cookie 推荐：
-
-```http
-Set-Cookie: __Host-muvisual_auth=<签名会话>;
-Path=/;
-Max-Age=604800;
-HttpOnly;
-Secure;
-SameSite=Lax
+```json
+{ "authenticated": true }
 ```
 
-会话值可以保持简单：
+### `POST /auth/login`
+
+公开接口。请求体为 JSON：
+
+```json
+{ "password": "共享密码" }
+```
+
+密码正确时设置签名 Session Cookie，并返回：
+
+```json
+{ "authenticated": true }
+```
+
+密码错误时返回 `401`。
+
+### `POST /auth/logout`
+
+清除 Session Cookie，并返回：
+
+```json
+{ "authenticated": false }
+```
+
+## 受保护资源
+
+后端只对以下路径验证 Session Cookie：
+
+- `/api/*`，但公开的 `/api/auth/session` 除外
+- `/media/*`
+
+HTML、JavaScript、CSS、字体和 `public` 目录中的静态资源不需要认证。前端路由守卫负责阻止未认证用户进入应用页面，但这不属于全站静态资源保护。
+
+## Session
+
+Cookie 中不保存原始密码。会话值为：
 
 ```text
-过期时间戳.HMAC-SHA256(过期时间戳, SHARE_TOKEN)
+过期时间戳.HMAC-SHA256(过期时间戳, AUTH_PASSWORD)
 ```
 
-这样服务端无须数据库或内存 Session，修改 `SHARE_TOKEN` 后旧 Cookie 自动失效。生产环境使用 `Secure`；本地纯 HTTP 开发时可按环境关闭。
+会话默认有效期为 7 天。修改 `AUTH_PASSWORD` 后，已有 Cookie 会自动失效。
 
-关键注意事项：
+生产环境 Cookie 使用 `__Host-muvisual_auth`，并设置 `HttpOnly`、`Secure`、`SameSite=Lax` 和 `Path=/`。本地 HTTP 开发使用不带 `Secure` 的 `muvisual_auth`。
 
-* URL 中的共享密码可能进入浏览器历史、代理/CDN 访问日志和分析平台。立即重定向只能缩短暴露时间，不能消除日志风险。
-* 认证响应和登录页设置 `Cache-Control: no-store`、`Referrer-Policy: no-referrer`。
-* 登录 POST 请求体限制在约 4 KB，避免无限读取。
-* `?access=` 只接受 `GET`，重定向时只删除 `access`，保留其他查询参数。
-* 密码比较前先检查 Buffer 长度，再用 Node `crypto.timingSafeEqual`。
-* 如果部署平台依赖 `/api/health` 做健康检查，可单独放行；否则也纳入保护。
-* Vite 开发服务器本身不会被这个后端网关保护。生产环境由当前 Node 服务提供 `dist` 时才能实现真正的全站保护。
+登录请求体限制为 4 KB，密码通过 `crypto.timingSafeEqual` 比较。认证响应使用 `Cache-Control: no-store` 和 `Referrer-Policy: no-referrer`。
 
-这个项目体量下，没有必要使用 JWT 或引入认证框架。一个签名 Cookie、一个登录 POST 路由和一个位于所有现有路由之前的认证判断就足够。此次仅完成分析，没有修改文件。
+## 配置
 
-develop 时: 密码放到 .env 里面的 AUTH_PASSWORD = ... 里面
-docker 时: 密码放到 compose.yaml 里面，例如：
+开发环境在项目根目录 `.env` 中设置：
+
+```dotenv
+AUTH_PASSWORD=your-password
+```
+
+Docker 环境在 `compose.yaml` 中设置：
 
 ```yaml
 services:
   muvisual:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: muvisual
-    restart: unless-stopped
-    ports:
-      - "8787:8787"
-    volumes:
-      - ./backend/data/visual:/app/backend/data/visual:ro
     environment:
       NODE_ENV: production
       PORT: 8787
-      AUTH_PASSWORD: "Church123456"
+      AUTH_PASSWORD: "your-password"
 ```
+
+共享链接格式：
+
+```text
+https://your-domain.example/?access=your-password
+```
+
+密码仍可能进入浏览器历史、代理日志或分析平台。前端会尽快清理地址栏，但无法消除请求到达服务器之前产生的日志记录。

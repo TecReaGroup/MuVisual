@@ -12,3 +12,4 @@ services:
     environment:
       NODE_ENV: production
       PORT: 8787
+      AUTH_PASSWORD: "your-password"

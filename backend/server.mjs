@@ -1,13 +1,30 @@
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { readdir, stat } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { extname, isAbsolute, join, relative, resolve } from 'node:path';
+import { loadEnvFile } from 'node:process';
 import { fileURLToPath } from 'node:url';
 
+if (process.env.NODE_ENV !== 'production') {
+  try {
+    loadEnvFile();
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+  }
+}
+
 const PORT = Number(process.env.PORT || 8787);
+const AUTH_PASSWORD = process.env.AUTH_PASSWORD;
+if (!AUTH_PASSWORD) throw new Error('AUTH_PASSWORD is required');
+
 const visualRoot = fileURLToPath(new URL('./data/visual/', import.meta.url));
 const distRoot = fileURLToPath(new URL('../dist/', import.meta.url));
 const instrumentNames = ['piano', 'other', 'vocals', 'bass', 'drums', 'guitar'];
+const isProduction = process.env.NODE_ENV === 'production';
+const authCookieName = isProduction ? '__Host-muvisual_auth' : 'muvisual_auth';
+const sessionMaxAge = 7 * 24 * 60 * 60;
+const maxLoginBodySize = 4 * 1024;
 
 const staticContentTypes = {
   '.css': 'text/css; charset=utf-8',
@@ -29,6 +46,70 @@ const staticContentTypes = {
 
 const encodeId = value => Buffer.from(value, 'utf8').toString('base64url');
 const decodeId = value => Buffer.from(value, 'base64url').toString('utf8');
+
+function secureEqual(first, second) {
+  const firstBuffer = Buffer.from(first);
+  const secondBuffer = Buffer.from(second);
+  return firstBuffer.length === secondBuffer.length && timingSafeEqual(firstBuffer, secondBuffer);
+}
+
+function createSession() {
+  const expiresAt = Math.floor(Date.now() / 1000) + sessionMaxAge;
+  const signature = createHmac('sha256', AUTH_PASSWORD).update(String(expiresAt)).digest('base64url');
+  return `${expiresAt}.${signature}`;
+}
+
+function hasValidSession(request) {
+  const cookies = Object.fromEntries((request.headers.cookie ?? '').split(';').flatMap(part => {
+    const separator = part.indexOf('=');
+    if (separator === -1) return [];
+    return [[part.slice(0, separator).trim(), part.slice(separator + 1).trim()]];
+  }));
+  const session = cookies[authCookieName];
+  if (!session) return false;
+
+  const separator = session.indexOf('.');
+  if (separator === -1) return false;
+  const expiresAt = session.slice(0, separator);
+  const signature = session.slice(separator + 1);
+  if (!/^\d+$/.test(expiresAt) || Number(expiresAt) <= Math.floor(Date.now() / 1000)) return false;
+
+  const expected = createHmac('sha256', AUTH_PASSWORD).update(expiresAt).digest('base64url');
+  return secureEqual(signature, expected);
+}
+
+function sessionCookie(value, maxAge = sessionMaxAge) {
+  const attributes = [
+    `${authCookieName}=${value}`,
+    'Path=/',
+    `Max-Age=${maxAge}`,
+    'HttpOnly',
+    'SameSite=Lax',
+  ];
+  if (isProduction) attributes.push('Secure');
+  return attributes.join('; ');
+}
+
+async function readJsonBody(request) {
+  const contentLength = Number(request.headers['content-length'] ?? 0);
+  if (contentLength > maxLoginBodySize) {
+    request.resume();
+    throw Object.assign(new Error('Login request is too large'), { statusCode: 413 });
+  }
+
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of request) {
+    size += chunk.length;
+    if (size > maxLoginBodySize) throw Object.assign(new Error('Login request is too large'), { statusCode: 413 });
+    chunks.push(chunk);
+  }
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  } catch {
+    throw Object.assign(new Error('Invalid JSON body'), { statusCode: 400 });
+  }
+}
 
 function splitFolderName(folderName) {
   const separator = folderName.indexOf('_');
@@ -85,10 +166,13 @@ async function readLibrary() {
   return items.sort((first, second) => first.title.localeCompare(second.title, 'zh-CN'));
 }
 
-function sendJson(response, status, value) {
+function sendJson(response, status, value, headers = {}) {
   response.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
     'Cache-Control': 'no-store',
+    'Referrer-Policy': 'no-referrer',
+    'X-Content-Type-Options': 'nosniff',
+    ...headers,
   });
   response.end(JSON.stringify(value));
 }
@@ -196,6 +280,36 @@ async function streamMedia(request, response, filePath) {
 const server = createServer(async (request, response) => {
   try {
     const url = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`);
+    const authenticated = hasValidSession(request);
+
+    if (request.method === 'GET' && url.pathname === '/api/auth/session') {
+      sendJson(response, 200, { authenticated });
+      return;
+    }
+
+    if (request.method === 'POST' && url.pathname === '/auth/login') {
+      if (!request.headers['content-type']?.startsWith('application/json')) {
+        sendJson(response, 415, { error: 'Unsupported content type' });
+        return;
+      }
+      const body = await readJsonBody(request);
+      if (typeof body?.password === 'string' && secureEqual(body.password, AUTH_PASSWORD)) {
+        sendJson(response, 200, { authenticated: true }, { 'Set-Cookie': sessionCookie(createSession()) });
+        return;
+      }
+      sendJson(response, 401, { authenticated: false, error: 'Invalid password' });
+      return;
+    }
+
+    if (request.method === 'POST' && url.pathname === '/auth/logout') {
+      sendJson(response, 200, { authenticated: false }, { 'Set-Cookie': sessionCookie('', 0) });
+      return;
+    }
+
+    if (!authenticated && (url.pathname.startsWith('/api/') || url.pathname.startsWith('/media/'))) {
+      sendJson(response, 401, { error: 'Authentication required' });
+      return;
+    }
 
     if (request.method === 'GET' && url.pathname === '/api/health') {
       sendJson(response, 200, { status: 'ok' });
@@ -249,6 +363,10 @@ const server = createServer(async (request, response) => {
     sendJson(response, 404, { error: 'Route not found' });
   } catch (error) {
     console.error(error);
+    if (error?.statusCode === 400 || error?.statusCode === 413) {
+      sendJson(response, error.statusCode, { error: error.message });
+      return;
+    }
     sendJson(response, 500, { error: 'Unable to read the visual library' });
   }
 });
