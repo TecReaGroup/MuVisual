@@ -23,7 +23,7 @@ const distRoot = fileURLToPath(new URL('../dist/', import.meta.url));
 const instrumentNames = ['piano', 'other', 'vocals', 'bass', 'drums', 'guitar'];
 const isProduction = process.env.NODE_ENV === 'production';
 const authCookieName = isProduction ? '__Host-muvisual_auth' : 'muvisual_auth';
-const sessionMaxAge = 7 * 24 * 60 * 60;
+const sessionMaxAge = 30 * 24 * 60 * 60;
 const maxLoginBodySize = 4 * 1024;
 
 const staticContentTypes = {
