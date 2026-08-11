@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 
 const translations = {
   en: {
-    'app.title': 'MuVisual | Piano Roll',
+    'app.title': 'MuVisual | MIDI Visualizer',
     'language.current': 'EN',
     'language.switch': 'Switch to Chinese',
     'import.label': 'Import MIDI',
@@ -89,7 +89,7 @@ const translations = {
     'pianoRoll.scroll': 'Scroll piano visualizer playback position',
   },
   zh: {
-    'app.title': 'MuVisual | 钢琴卷帘可视化',
+    'app.title': 'MuVisual | MIDI 可视化',
     'language.current': '中',
     'language.switch': '切换至英文',
     'import.label': '导入 MIDI',
