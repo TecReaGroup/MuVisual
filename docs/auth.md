@@ -22,7 +22,7 @@ app.use((req, res, next) => {
 <https://你的域名.com/?access=你的SHARE_TOKEN>
 
 把密码嵌入在 url 里面访问后自动获取 cookie，立刻跳转到干净的网址
-而不带密码的 url 需要手动输入 密码
+而不带密码的 url 需要手动输入 密码，需要编写一个简单的登录页，POST /auth/login 校验密码，成功后设置 cookie 并跳转
 
 ## 方案
 
