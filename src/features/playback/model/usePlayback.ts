@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { AudioSource, MidiInstrument, Note } from '../../../entities/music/model/types';
+import type { AudioSource, Instrument, Note } from '../../../entities/music/model/types';
 import { usePianoAudio } from './usePianoAudio';
 
 const SCHEDULE_INTERVAL_MS = 25;
@@ -21,8 +21,8 @@ export function usePlayback(
   muted: boolean,
   volume: number,
   audioSource: AudioSource = 'midi',
-  midiInstrument: MidiInstrument = 'piano',
-  audioUrls: { original: string | null; piano: string | null } = { original: null, piano: null },
+  instrument: Instrument = 'piano',
+  audioUrls: { original: string | null; instrument: string | null } = { original: null, instrument: null },
 ) {
   const [playing, setPlaying] = useState(false);
   const [elapsed, setElapsed] = useState(0);
@@ -38,7 +38,8 @@ export function usePlayback(
   const lastMediaSyncRef = useRef(0);
   const toggleRef = useRef<() => void>(() => undefined);
   const midiMuted = muted || audioSource !== 'midi';
-  const { getAudioTime, loadStatus, playNote, prepare, stopAll } = usePianoAudio(midiMuted, volume, midiInstrument);
+  const midiTimbre = instrument === 'piano' ? 'piano' : 'string';
+  const { getAudioTime, loadStatus, playNote, prepare, stopAll } = usePianoAudio(midiMuted, volume, midiTimbre);
   const sortedNotes = useMemo(() => [...notes].sort((first, second) => first.start - second.start), [notes]);
   const notesRef = useRef(sortedNotes);
   notesRef.current = sortedNotes;
@@ -47,10 +48,10 @@ export function usePlayback(
     [notes],
   );
   const duration = Math.max(midiDuration, mediaDuration);
-  const mediaRefs = useRef<Record<'original' | 'piano', HTMLAudioElement | undefined>>({ original: undefined, piano: undefined });
+  const mediaRefs = useRef<Record<'original' | 'instrument', HTMLAudioElement | undefined>>({ original: undefined, instrument: undefined });
   const getMasterAudio = useCallback(() => {
     if (audioSource === 'original') return mediaRefs.current.original;
-    if (audioSource === 'piano') return mediaRefs.current.piano;
+    if (audioSource === 'instrument') return mediaRefs.current.instrument;
     return undefined;
   }, [audioSource]);
   const getTimelineTime = useCallback(() => {
@@ -62,9 +63,9 @@ export function usePlayback(
 
   useEffect(() => {
     setMediaDuration(0);
-    const entries: Array<['original' | 'piano', string | null]> = [
+    const entries: Array<['original' | 'instrument', string | null]> = [
       ['original', audioUrls.original],
-      ['piano', audioUrls.piano],
+      ['instrument', audioUrls.instrument],
     ];
     const audios = entries.map(([kind, url]) => {
       if (!url) return null;
@@ -86,14 +87,14 @@ export function usePlayback(
         audio.pause();
         audio.removeEventListener('loadedmetadata', updateDuration);
       });
-      mediaRefs.current = { original: undefined, piano: undefined };
+      mediaRefs.current = { original: undefined, instrument: undefined };
     };
-  }, [audioUrls.original, audioUrls.piano]);
+  }, [audioUrls.instrument, audioUrls.original]);
 
   useEffect(() => {
-    (Object.entries(mediaRefs.current) as Array<['original' | 'piano', HTMLAudioElement | undefined]>).forEach(([kind, audio]) => {
+    (Object.entries(mediaRefs.current) as Array<['original' | 'instrument', HTMLAudioElement | undefined]>).forEach(([kind, audio]) => {
       if (!audio) return;
-      audio.muted = muted || !['original', 'piano'].includes(audioSource) || kind !== audioSource;
+      audio.muted = muted || !['original', 'instrument'].includes(audioSource) || kind !== audioSource;
       audio.volume = volume / 100;
     });
   }, [audioSource, muted, volume, mediaDuration]);

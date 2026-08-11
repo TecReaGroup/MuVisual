@@ -1,6 +1,6 @@
-import { AudioWaveform, Disc3, Minus, Music2, Pause, Piano, Play, Plus, RotateCcw, Volume2, VolumeX } from 'lucide-react';
+import { AudioWaveform, Disc3, Minus, Music2, Pause, Play, Plus, RotateCcw, Volume2, VolumeX } from 'lucide-react';
 import { KEY_SIGNATURE_OPTIONS } from '../../../entities/music/lib/pitch';
-import type { AudioSource, LabelMode, MidiInstrument } from '../../../entities/music/model/types';
+import type { AudioSource, Instrument, LabelMode } from '../../../entities/music/model/types';
 import { formatTime } from '../../../shared/lib/formatTime';
 import { useI18n } from '../../../shared/i18n';
 
@@ -20,9 +20,9 @@ const rangePointerHandlers = {
 type PlaybackControlsProps = {
   bpm: number;
   audioSource: AudioSource;
-  midiInstrument: MidiInstrument;
+  instrument: Instrument;
   availableAudioSources: Record<AudioSource, boolean>;
-  availableMidiVersions: Record<'original' | 'quantized', boolean>;
+  availableInstruments: Partial<Record<Instrument, boolean>>;
   beatEnhanceAvailable: boolean;
   beatEnhanceEnabled: boolean;
   duration: number;
@@ -31,19 +31,17 @@ type PlaybackControlsProps = {
   keySignature: string;
   labelMode: LabelMode;
   muted: boolean;
-  midiVersion: 'original' | 'quantized';
   noteCount: number;
   playing: boolean;
   volume: number;
   onBpmChange: (bpm: number) => void;
   onAudioSourceChange: (source: AudioSource) => void;
   onBeatEnhanceChange: (enabled: boolean) => void;
-  onMidiInstrumentChange: (instrument: MidiInstrument) => void;
+  onInstrumentChange: (instrument: Instrument) => void;
   onGridDelayChange: (delay: number) => void;
   onKeySignatureChange: (keySignature: string) => void;
   onLabelModeChange: (mode: LabelMode) => void;
   onMutedChange: (muted: boolean) => void;
-  onMidiVersionChange: (version: 'original' | 'quantized') => void;
   onReset: () => void;
   onSeek: (time: number) => void;
   onToggle: () => void;
@@ -89,15 +87,19 @@ export function PlaybackControls(props: PlaybackControlsProps) {
       <span>{t('playback.audioSource')}</span>
       <div className="audio-source-switch" role="group" aria-label={t('playback.audioSource')}>
         <button className={props.audioSource === 'midi' ? 'selected' : ''} disabled={!props.availableAudioSources.midi} onClick={() => props.onAudioSourceChange('midi')} aria-pressed={props.audioSource === 'midi'}><Music2 size={14} />MIDI</button>
-        <button className={props.audioSource === 'piano' ? 'selected' : ''} disabled={!props.availableAudioSources.piano} onClick={() => props.onAudioSourceChange('piano')} aria-pressed={props.audioSource === 'piano'}><Piano size={14} />{t('playback.piano')}</button>
+        <button className={props.audioSource === 'instrument' ? 'selected' : ''} disabled={!props.availableAudioSources.instrument} onClick={() => props.onAudioSourceChange('instrument')} aria-pressed={props.audioSource === 'instrument'}><AudioWaveform size={14} />{t('playback.instrumentAudio')}</button>
         <button className={props.audioSource === 'original' ? 'selected' : ''} disabled={!props.availableAudioSources.original} onClick={() => props.onAudioSourceChange('original')} aria-pressed={props.audioSource === 'original'}><Disc3 size={14} />{t('playback.originalAudio')}</button>
       </div>
     </div>
-    <div className="midi-instrument-control">
-      <label htmlFor="midi-instrument">{t('playback.midiInstrument')}</label>
-      <select id="midi-instrument" value={props.midiInstrument} onChange={event => props.onMidiInstrumentChange(event.target.value as MidiInstrument)}>
-        <option value="piano">{t('playback.piano')}</option>
-        <option value="string">{t('playback.string')}</option>
+    <div className="instrument-control">
+      <label htmlFor="instrument">{t('playback.instrument')}</label>
+      <select id="instrument" value={props.instrument} onChange={event => props.onInstrumentChange(event.target.value as Instrument)}>
+        <option value="piano" disabled={!props.availableInstruments.piano}>{t('playback.piano')}</option>
+        <option value="other" disabled={!props.availableInstruments.other}>{t('playback.other')}</option>
+        <option value="vocals" disabled={!props.availableInstruments.vocals}>{t('playback.vocals')}</option>
+        <option value="bass" disabled={!props.availableInstruments.bass}>{t('playback.bass')}</option>
+        <option value="drums" disabled={!props.availableInstruments.drums}>{t('playback.drums')}</option>
+        <option value="guitar" disabled={!props.availableInstruments.guitar}>{t('playback.guitar')}</option>
       </select>
     </div>
     <div className={`rhythm-controls ${beatEnhanceActive ? 'enhanced' : ''}`}>
@@ -129,13 +131,6 @@ export function PlaybackControls(props: PlaybackControlsProps) {
           <button onClick={() => props.onGridDelayChange(Math.min(gridDelayMax, props.gridDelay + 10))} disabled={beatEnhanceActive || props.gridDelay >= gridDelayMax} aria-label={t('playback.increaseDelay')}><Plus size={16} />10 MS</button>
           <button onClick={() => props.onGridDelayChange(Math.max(0, props.gridDelay - 10))} disabled={beatEnhanceActive || props.gridDelay <= 0} aria-label={t('playback.decreaseDelay')}><Minus size={16} />10 MS</button>
         </div>
-      </div>
-    </div>
-    <div className="midi-version-control">
-      <span>{t('playback.midiVersion')}</span>
-      <div className="midi-version-switch" role="group" aria-label={t('playback.midiVersion')}>
-        <button className={props.midiVersion === 'original' ? 'selected' : ''} disabled={!props.availableMidiVersions.original} onClick={() => props.onMidiVersionChange('original')} aria-pressed={props.midiVersion === 'original'}>{t('playback.original')}</button>
-        <button className={props.midiVersion === 'quantized' ? 'selected' : ''} disabled={!props.availableMidiVersions.quantized} onClick={() => props.onMidiVersionChange('quantized')} aria-pressed={props.midiVersion === 'quantized'}>{t('playback.quantized')}</button>
       </div>
     </div>
     <div className="legend"><div><i className="left" />{t('playback.leftHand')}</div><div><i className="right" />{t('playback.rightHand')}</div></div>

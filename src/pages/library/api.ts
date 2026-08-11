@@ -1,12 +1,14 @@
+import type { Instrument } from '../../entities/music';
+
 export type LibraryItem = {
   album: string;
   audioUrl: string | null;
   beatUrl: string | null;
   id: string;
-  midiUrl: string | null;
-  originalMidiUrl: string | null;
-  pianoUrl: string | null;
-  quantizedMidiUrl: string | null;
+  instruments: Partial<Record<Instrument, {
+    audioUrl: string | null;
+    midiUrl: string | null;
+  }>>;
   size: number;
   title: string;
   updatedAt: string | null;

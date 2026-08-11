@@ -26,5 +26,5 @@ export type LabelMode = 'name' | 'number';
 
 export type ViewMode = 'roll' | 'score';
 
-export type AudioSource = 'midi' | 'piano' | 'original';
-export type MidiInstrument = 'piano' | 'string';
+export type AudioSource = 'midi' | 'instrument' | 'original';
+export type Instrument = 'piano' | 'other' | 'vocals' | 'bass' | 'drums' | 'guitar';

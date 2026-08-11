@@ -1,10 +1,12 @@
 import { ArrowUpRight, AudioLines, FileMusic, LoaderCircle, Search, Sparkles, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { MidiImportButton, parseMidiFile, type ImportedMidi } from '../../features/midi-import';
+import type { Instrument } from '../../entities/music';
+import { MidiImportButton, parseMidiFile, type ImportedMidi, type MidiVariant } from '../../features/midi-import';
 import { LanguageButton, useI18n, type TranslationKey } from '../../shared/i18n';
 import { getBeatAnalysis, getLibrary, type LibraryItem } from './api';
 
 const BAR_COUNT = 30;
+const INSTRUMENT_ORDER: Instrument[] = ['piano', 'other', 'vocals', 'bass', 'drums', 'guitar'];
 
 function waveform(id: string) {
   let seed = [...id].reduce((value, character) => value + character.charCodeAt(0), 0);
@@ -14,8 +16,8 @@ function waveform(id: string) {
   });
 }
 
-function formatSize(bytes: number, midiReady: string) {
-  if (!bytes) return midiReady;
+function formatSize(bytes: number, mediaReady: string) {
+  if (!bytes) return mediaReady;
   return `${Math.max(1, Math.round(bytes / 1024))} KB`;
 }
 
@@ -61,34 +63,46 @@ export function LibraryPage({ onOpenMidi, onHome }: LibraryPageProps) {
   }, [items, language, query]);
 
   const openTrack = async (item: LibraryItem) => {
-    if (!item.midiUrl || openingId) return;
+    if (openingId) return;
     setOpeningId(item.id);
     setError(null);
     try {
-      const loadMidi = async (url: string | null, suffix: string) => {
+      const loadMidi = async (url: string | null, instrument: Instrument) => {
         if (!url) return null;
         const response = await fetch(url);
         if (!response.ok) return null;
-        const file = new File([await response.blob()], `${item.title}_${suffix}.mid`, { type: 'audio/midi' });
+        const file = new File([await response.blob()], `${item.title}_${instrument}.mid`, { type: 'audio/midi' });
         return parseMidiFile(file);
       };
-      const [original, quantized, beatAnalysis] = await Promise.all([
-        loadMidi(item.originalMidiUrl, 'original'),
-        loadMidi(item.quantizedMidiUrl, 'quantized'),
+      const [loadedMidi, beatAnalysis] = await Promise.all([
+        Promise.all(INSTRUMENT_ORDER.map(async instrument => [
+          instrument,
+          await loadMidi(item.instruments[instrument]?.midiUrl ?? null, instrument),
+        ] as const)),
         getBeatAnalysis(item.beatUrl),
       ]);
-      const selected = quantized ?? original;
-      if (!selected) throw new Error('MIDI request failed');
+      const midiByInstrument = Object.fromEntries(loadedMidi) as Partial<Record<Instrument, MidiVariant | null>>;
+      const availableInstruments = INSTRUMENT_ORDER.filter(instrument => item.instruments[instrument]);
+      const defaultInstrument = availableInstruments.find(instrument => midiByInstrument[instrument])
+        ?? availableInstruments[0];
+      if (!defaultInstrument) throw new Error('No instrument media found');
+      const selected = midiByInstrument[defaultInstrument] ?? {
+        backgroundDelayMs: 0,
+        bpm: beatAnalysis?.beats[1] ? Math.round(60 / (beatAnalysis.beats[1] - beatAnalysis.beats[0])) : 120,
+        keySignature: 'C:major',
+        notes: [],
+        tempoMap: [],
+      };
       onOpenMidi({
         ...selected,
-        audioUrls: { original: item.audioUrl, piano: item.pianoUrl },
+        audioUrls: { original: item.audioUrl, instrument: item.instruments[defaultInstrument]?.audioUrl ?? null },
         beatAnalysis,
-        defaultMidiVersion: quantized ? 'quantized' : 'original',
+        defaultInstrument,
+        instruments: Object.fromEntries(availableInstruments.map(instrument => [instrument, {
+          audioUrl: item.instruments[instrument]?.audioUrl ?? null,
+          midi: midiByInstrument[instrument] ?? null,
+        }])),
         name: item.title,
-        variants: {
-          ...(original ? { original } : {}),
-          ...(quantized ? { quantized } : {}),
-        },
       });
     } catch {
       setError({ key: 'library.openError', title: item.title });
@@ -131,7 +145,7 @@ export function LibraryPage({ onOpenMidi, onHome }: LibraryPageProps) {
               className="track-card"
               key={item.id}
               type="button"
-              disabled={!item.midiUrl || openingId !== null}
+              disabled={openingId !== null}
               onClick={() => void openTrack(item)}
               aria-label={t('library.openTrack', { title: item.title })}
             >
@@ -143,8 +157,8 @@ export function LibraryPage({ onOpenMidi, onHome }: LibraryPageProps) {
                 <small>{item.album}</small>
               </span>
               <span className="track-meta">
-                <span><FileMusic size={13} /> {formatSize(item.size, t('library.midiReady'))}</span>
-                <span>{item.pianoUrl ? t('library.pianoAndMidi') : 'MIDI'}</span>
+                <span><FileMusic size={13} /> {formatSize(item.size, t('library.mediaReady'))}</span>
+                <span>{Object.keys(item.instruments).length} {t('library.instrumentTracks')}</span>
               </span>
             </button>)}
           </div>}

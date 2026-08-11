@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 const PORT = Number(process.env.PORT || 8787);
 const visualRoot = fileURLToPath(new URL('./data/visual/', import.meta.url));
 const distRoot = fileURLToPath(new URL('../dist/', import.meta.url));
+const instrumentNames = ['piano', 'other', 'vocals', 'bass', 'drums', 'guitar'];
 
 const staticContentTypes = {
   '.css': 'text/css; charset=utf-8',
@@ -42,27 +43,40 @@ async function readLibrary() {
 
   const items = await Promise.all(folders.map(async folder => {
     const folderPath = join(visualRoot, folder.name);
+    const id = encodeId(folder.name);
     const files = (await readdir(folderPath, { withFileTypes: true })).filter(file => file.isFile());
-    const sourceMidi = files.find(file => ['.mid', '.midi'].includes(extname(file.name).toLowerCase()) && !file.name.includes('_quantized'));
-    const quantizedMidi = files.find(file => file.name.toLowerCase().endsWith('_quantized.mid'));
-    const pianoAudio = files.find(file => file.name.toLowerCase().endsWith('_piano.mp3'));
-    const sourceAudio = files.find(file => file.name.toLowerCase().endsWith('.mp3') && !file.name.toLowerCase().endsWith('_piano.mp3'));
+    const sourceAudio = files.find(file => file.name === `${folder.name}.mp3`)
+      ?? files.find(file => file.name.toLowerCase().endsWith('.mp3'));
     const beatAnalysis = files.find(file => file.name.toLowerCase().endsWith('_beat.json'));
-    const primaryFile = quantizedMidi ?? sourceMidi ?? sourceAudio ?? pianoAudio;
+    const instruments = {};
+    for (const instrument of instrumentNames) {
+      const instrumentPath = join(folderPath, instrument);
+      let instrumentFiles;
+      try {
+        instrumentFiles = (await readdir(instrumentPath, { withFileTypes: true })).filter(file => file.isFile());
+      } catch (error) {
+        if (error?.code === 'ENOENT') continue;
+        throw error;
+      }
+      const audio = instrumentFiles.find(file => file.name.toLowerCase().endsWith(`_${instrument}.mp3`));
+      const midi = instrumentFiles.find(file => ['.mid', '.midi'].includes(extname(file.name).toLowerCase()) && file.name.toLowerCase().includes(`_${instrument}.`));
+      if (audio || midi) {
+        instruments[instrument] = {
+          audioUrl: audio ? `/media/${id}/instrument/${instrument}/audio` : null,
+          midiUrl: midi ? `/media/${id}/instrument/${instrument}/midi` : null,
+        };
+      }
+    }
+    const primaryFile = sourceAudio ?? beatAnalysis;
     const fileStats = primaryFile ? await stat(join(folderPath, primaryFile.name)) : null;
     const { title, album } = splitFolderName(folder.name);
-    const id = encodeId(folder.name);
-
     return {
       id,
       title,
       album,
-      midiUrl: quantizedMidi || sourceMidi ? `/media/${id}/midi` : null,
-      originalMidiUrl: sourceMidi ? `/media/${id}/midi-original` : null,
-      quantizedMidiUrl: quantizedMidi ? `/media/${id}/midi-quantized` : null,
       audioUrl: sourceAudio ? `/media/${id}/audio` : null,
       beatUrl: beatAnalysis ? `/media/${id}/beats` : null,
-      pianoUrl: pianoAudio ? `/media/${id}/piano` : null,
+      instruments,
       size: fileStats?.size ?? 0,
       updatedAt: fileStats?.mtime.toISOString() ?? null,
     };
@@ -116,16 +130,29 @@ async function findMedia(id, kind) {
   const folderPath = join(visualRoot, folderName);
   const files = (await readdir(folderPath, { withFileTypes: true })).filter(file => file.isFile());
   const matchers = {
-    'midi-original': file => ['.mid', '.midi'].includes(extname(file.name).toLowerCase()) && !file.name.toLowerCase().includes('_quantized'),
-    'midi-quantized': file => file.name.toLowerCase().endsWith('_quantized.mid'),
-    audio: file => file.name.toLowerCase().endsWith('.mp3') && !file.name.toLowerCase().endsWith('_piano.mp3'),
-    piano: file => file.name.toLowerCase().endsWith('_piano.mp3'),
+    audio: file => file.name === `${folderName}.mp3` || file.name.toLowerCase().endsWith('.mp3'),
     beats: file => file.name.toLowerCase().endsWith('_beat.json'),
   };
-  let file = kind === 'midi'
-    ? files.find(matchers['midi-quantized']) ?? files.find(matchers['midi-original'])
-    : files.find(matchers[kind]);
+  const file = files.find(matchers[kind]);
   return file ? join(folderPath, file.name) : null;
+}
+
+async function findInstrumentMedia(id, instrument, kind) {
+  if (!instrumentNames.includes(instrument)) return null;
+  const folderName = decodeId(id);
+  const folders = await readdir(visualRoot, { withFileTypes: true });
+  if (!folders.some(folder => folder.isDirectory() && folder.name === folderName)) return null;
+  const instrumentPath = join(visualRoot, folderName, instrument);
+  try {
+    const files = (await readdir(instrumentPath, { withFileTypes: true })).filter(file => file.isFile());
+    const file = kind === 'audio'
+      ? files.find(entry => entry.name.toLowerCase().endsWith(`_${instrument}.mp3`))
+      : files.find(entry => ['.mid', '.midi'].includes(extname(entry.name).toLowerCase()) && entry.name.toLowerCase().includes(`_${instrument}.`));
+    return file ? join(instrumentPath, file.name) : null;
+  } catch (error) {
+    if (error?.code === 'ENOENT') return null;
+    throw error;
+  }
 }
 
 async function streamMedia(request, response, filePath) {
@@ -192,11 +219,22 @@ const server = createServer(async (request, response) => {
       return;
     }
 
-    const mediaMatch = request.method === 'GET' && url.pathname.match(/^\/media\/([^/]+)\/(midi|midi-original|midi-quantized|audio|piano|beats)$/);
+    const mediaMatch = request.method === 'GET' && url.pathname.match(/^\/media\/([^/]+)\/(audio|beats)$/);
     if (mediaMatch) {
       const filePath = await findMedia(mediaMatch[1], mediaMatch[2]);
       if (!filePath) {
         sendJson(response, 404, { error: 'Media not found' });
+        return;
+      }
+      await streamMedia(request, response, filePath);
+      return;
+    }
+
+    const instrumentMediaMatch = request.method === 'GET' && url.pathname.match(/^\/media\/([^/]+)\/instrument\/([^/]+)\/(audio|midi)$/);
+    if (instrumentMediaMatch) {
+      const filePath = await findInstrumentMedia(instrumentMediaMatch[1], instrumentMediaMatch[2], instrumentMediaMatch[3]);
+      if (!filePath) {
+        sendJson(response, 404, { error: 'Instrument media not found' });
         return;
       }
       await streamMedia(request, response, filePath);

@@ -4,11 +4,13 @@ import { createTimbreLibrary, type TimbreLibrary } from './timbreLibrary';
 type LoadStatus = 'loading' | 'ready' | 'error';
 
 const CROSSFADE_SECONDS = 0.22;
+const DEFAULT_MIDI_VELOCITY = 72;
 
 const sharedAudio: {
   context?: AudioContext;
   muteGain?: GainNode;
   output?: GainNode;
+  volumeGain?: GainNode;
   pianoBus?: GainNode;
   stringBus?: GainNode;
   synthBus?: GainNode;
@@ -38,12 +40,14 @@ function getSharedAudioContext() {
   const pianoBus = context.createGain();
   const stringBus = context.createGain();
   const synthBus = context.createGain();
+  const volumeGain = context.createGain();
   const muteGain = context.createGain();
   const compressor = context.createDynamicsCompressor();
-  output.gain.value = 0.72;
+  output.gain.value = 1;
   pianoBus.gain.value = sharedAudio.status === 'ready' ? 1 : 0;
   synthBus.gain.value = sharedAudio.status === 'ready' ? 0 : 1;
   stringBus.gain.value = 0;
+  volumeGain.gain.value = 1;
   muteGain.gain.value = 1;
   compressor.threshold.value = -10;
   compressor.knee.value = 24;
@@ -53,10 +57,11 @@ function getSharedAudioContext() {
   pianoBus.connect(output);
   stringBus.connect(output);
   synthBus.connect(output);
-  output.connect(muteGain).connect(compressor).connect(context.destination);
+  output.connect(compressor).connect(volumeGain).connect(muteGain).connect(context.destination);
   sharedAudio.context = context;
   sharedAudio.muteGain = muteGain;
   sharedAudio.output = output;
+  sharedAudio.volumeGain = volumeGain;
   sharedAudio.pianoBus = pianoBus;
   sharedAudio.stringBus = stringBus;
   sharedAudio.synthBus = synthBus;
@@ -113,7 +118,7 @@ export function usePianoAudio(muted: boolean, volume: number, instrument: 'piano
     const output = sharedAudio.output;
     if (!output) return;
     const voiceCount = Math.max(1, activeVoicesRef.current);
-    const targetGain = Math.max(0.16, 0.72 / Math.sqrt(voiceCount));
+    const targetGain = Math.max(0.22, 1 / Math.sqrt(voiceCount));
     output.gain.cancelScheduledValues(context.currentTime);
     output.gain.setTargetAtTime(targetGain, context.currentTime, 0.006);
   }, []);
@@ -140,6 +145,14 @@ export function usePianoAudio(muted: boolean, volume: number, instrument: 'piano
   useEffect(() => {
     void loadPiano();
   }, [loadPiano]);
+
+  useEffect(() => {
+    const context = getAudioContext();
+    const volumeGain = sharedAudio.volumeGain;
+    if (!volumeGain) return;
+    volumeGain.gain.cancelScheduledValues(context.currentTime);
+    volumeGain.gain.setTargetAtTime(volume / 100, context.currentTime, 0.008);
+  }, [getAudioContext, volume]);
 
   useEffect(() => {
     const context = getAudioContext();
@@ -177,7 +190,7 @@ export function usePianoAudio(muted: boolean, volume: number, instrument: 'piano
         note: pitch,
         time: noteStart,
         duration: safeLength,
-        velocity: definition.velocity(volume),
+        velocity: definition.velocity(DEFAULT_MIDI_VELOCITY),
         onEnded: cleanup,
       });
       stopNote = () => stop(context.currentTime);
@@ -207,7 +220,7 @@ export function usePianoAudio(muted: boolean, volume: number, instrument: 'piano
     };
     oscillator.type = 'sine';
     oscillator.frequency.value = 440 * Math.pow(2, (pitch - 69) / 12);
-    const peak = (volume / 100) * 0.08;
+    const peak = 0.08;
     gain.gain.setValueAtTime(0.0001, now);
     gain.gain.linearRampToValueAtTime(peak, attackEnd);
     gain.gain.setValueAtTime(peak, releaseStart);
@@ -221,7 +234,7 @@ export function usePianoAudio(muted: boolean, volume: number, instrument: 'piano
     activeStopsRef.current.add(stopNote);
     oscillator.start(now);
     oscillator.stop(releaseEnd + 0.002);
-  }, [beginVoice, getAudioContext, instrument, volume]);
+  }, [beginVoice, getAudioContext, instrument]);
 
   const stopAll = useCallback(() => {
     activeStopsRef.current.forEach(stop => stop());

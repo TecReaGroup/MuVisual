@@ -1,7 +1,5 @@
 import { Midi } from '@tonejs/midi';
-import type { BeatAnalysis, Hand, Note, TempoPoint } from '../../../entities/music/model/types';
-
-export type MidiVersion = 'original' | 'quantized';
+import type { BeatAnalysis, Hand, Instrument, Note, TempoPoint } from '../../../entities/music/model/types';
 
 export type MidiVariant = {
   backgroundDelayMs: number;
@@ -12,11 +10,11 @@ export type MidiVariant = {
 };
 
 export type ImportedMidi = MidiVariant & {
-  audioUrls?: { original: string | null; piano: string | null };
+  audioUrls?: { original: string | null; instrument: string | null };
   beatAnalysis?: BeatAnalysis | null;
-  defaultMidiVersion?: MidiVersion;
+  defaultInstrument?: Instrument;
+  instruments?: Partial<Record<Instrument, { audioUrl: string | null; midi: MidiVariant | null }>>;
   name: string;
-  variants?: Partial<Record<MidiVersion, MidiVariant>>;
 };
 
 function parseBackgroundDelayMs(meta: Array<{ text: string; ticks: number; type: string }>) {
