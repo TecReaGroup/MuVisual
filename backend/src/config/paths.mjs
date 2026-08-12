@@ -1,0 +1,7 @@
+import { fileURLToPath } from 'node:url';
+
+export const paths = {
+  distRoot: fileURLToPath(new URL('../../../dist/', import.meta.url)),
+  modalRoot: fileURLToPath(new URL('../../data/modal/', import.meta.url)),
+  visualRoot: fileURLToPath(new URL('../../data/visual/', import.meta.url)),
+};

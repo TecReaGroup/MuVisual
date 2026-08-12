@@ -9,5 +9,5 @@ node_modules
 dist
 output
 temp
-backend/data/visual
+backend/data
 npm-debug.log*

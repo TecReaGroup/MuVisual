@@ -19,6 +19,7 @@ ENV PORT=8787
 
 COPY --from=builder --chown=node:node /app/dist ./dist
 COPY --chown=node:node backend/server.mjs ./backend/server.mjs
+COPY --chown=node:node backend/src ./backend/src
 
 RUN mkdir -p /app/backend/data/visual \
     && chown -R node:node /app
