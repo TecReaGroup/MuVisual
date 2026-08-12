@@ -16,6 +16,19 @@ function findNoteIndex(notes: Note[], time: number) {
   return low;
 }
 
+function waitForMediaReady(audio: HTMLAudioElement) {
+  if (audio.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) return Promise.resolve();
+  return new Promise<void>(resolve => {
+    const finish = () => {
+      audio.removeEventListener('loadeddata', finish);
+      audio.removeEventListener('error', finish);
+      resolve();
+    };
+    audio.addEventListener('loadeddata', finish, { once: true });
+    audio.addEventListener('error', finish, { once: true });
+  });
+}
+
 export function usePlayback(
   notes: Note[],
   muted: boolean,
@@ -29,13 +42,12 @@ export function usePlayback(
   const [mediaDuration, setMediaDuration] = useState(0);
   const elapsedRef = useRef(0);
   const lastElapsedCommitRef = useRef(0);
-  const timelineStartRef = useRef(0);
+  const transportStartAudioTimeRef = useRef(0);
   const pausedRef = useRef(0);
   const preparingRef = useRef(false);
   const startRequestRef = useRef(0);
   const nextNoteIndexRef = useRef(0);
   const playbackRafRef = useRef<number>();
-  const lastMediaSyncRef = useRef(0);
   const toggleRef = useRef<() => void>(() => undefined);
   const midiMuted = muted || audioSource !== 'midi';
   const midiTimbre = instrument === 'piano' ? 'piano' : 'string';
@@ -49,17 +61,9 @@ export function usePlayback(
   );
   const duration = Math.max(midiDuration, mediaDuration);
   const mediaRefs = useRef<Record<'original' | 'instrument', HTMLAudioElement | undefined>>({ original: undefined, instrument: undefined });
-  const getMasterAudio = useCallback(() => {
-    if (audioSource === 'original') return mediaRefs.current.original;
-    if (audioSource === 'instrument') return mediaRefs.current.instrument;
-    return undefined;
-  }, [audioSource]);
   const getTimelineTime = useCallback(() => {
-    const masterAudio = getMasterAudio();
-    return masterAudio && !masterAudio.paused
-      ? masterAudio.currentTime
-      : Math.max(0, performance.now() / 1000 - timelineStartRef.current);
-  }, [getMasterAudio]);
+    return Math.max(0, getAudioTime() - transportStartAudioTimeRef.current);
+  }, [getAudioTime]);
 
   useEffect(() => {
     setMediaDuration(0);
@@ -117,19 +121,12 @@ export function usePlayback(
 
     const updateMidiPosition = () => {
       const now = performance.now();
-      const masterAudio = getMasterAudio();
-      if (masterAudio && !masterAudio.paused && now - lastMediaSyncRef.current >= 1000) {
-        Object.values(mediaRefs.current).forEach(audio => {
-          if (audio && audio !== masterAudio && audio.muted && !audio.paused && Math.abs(audio.currentTime - masterAudio.currentTime) > 0.15) {
-            audio.currentTime = masterAudio.currentTime;
-          }
-        });
-        lastMediaSyncRef.current = now;
-      }
       const playbackTime = getTimelineTime();
       const current = Math.min(playbackTime, duration);
       elapsedRef.current = current;
       if (playbackTime >= duration) {
+        stopAll();
+        Object.values(mediaRefs.current).forEach(audio => audio?.pause());
         pausedRef.current = duration;
         setElapsed(current);
         setPlaying(false);
@@ -149,7 +146,7 @@ export function usePlayback(
       window.clearInterval(scheduleInterval);
       cancelAnimationFrame(playbackRafRef.current!);
     };
-  }, [duration, getAudioTime, getMasterAudio, getTimelineTime, playNote, playing]);
+  }, [duration, getAudioTime, getTimelineTime, playNote, playing, stopAll]);
 
   const pause = useCallback(() => {
     startRequestRef.current += 1;
@@ -183,20 +180,23 @@ export function usePlayback(
     }
     const request = ++startRequestRef.current;
     preparingRef.current = true;
-
-    Object.values(mediaRefs.current).forEach(audio => {
-      if (!audio) return;
-      audio.currentTime = pausedRef.current;
-      void audio.play().catch(() => undefined);
-    });
-    await prepare();
+    await Promise.all([
+      prepare(),
+      ...Object.values(mediaRefs.current).filter((audio): audio is HTMLAudioElement => Boolean(audio)).map(waitForMediaReady),
+    ]);
     if (request !== startRequestRef.current) return;
     preparingRef.current = false;
-    timelineStartRef.current = performance.now() / 1000 - pausedRef.current;
-    nextNoteIndexRef.current = findNoteIndex(notesRef.current, getTimelineTime());
+    const startPosition = pausedRef.current;
+    transportStartAudioTimeRef.current = getAudioTime() - startPosition;
+    Object.values(mediaRefs.current).forEach(audio => {
+      if (!audio) return;
+      audio.currentTime = startPosition;
+      void audio.play().catch(() => undefined);
+    });
+    nextNoteIndexRef.current = findNoteIndex(notesRef.current, startPosition);
     lastElapsedCommitRef.current = performance.now();
     setPlaying(true);
-  }, [duration, getTimelineTime, pause, playing, prepare]);
+  }, [duration, getAudioTime, pause, playing, prepare]);
 
   toggleRef.current = toggle;
   useEffect(() => {
@@ -230,12 +230,12 @@ export function usePlayback(
     pausedRef.current = nextTime;
     elapsedRef.current = nextTime;
     nextNoteIndexRef.current = findNoteIndex(notesRef.current, nextTime);
-    timelineStartRef.current = performance.now() / 1000 - nextTime;
+    transportStartAudioTimeRef.current = getAudioTime() - nextTime;
     Object.values(mediaRefs.current).forEach(audio => {
       if (audio) audio.currentTime = nextTime;
     });
     setElapsed(nextTime);
-  }, [duration, stopAll]);
+  }, [duration, getAudioTime, stopAll]);
 
   const reset = useCallback(() => {
     startRequestRef.current += 1;
