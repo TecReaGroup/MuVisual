@@ -123,7 +123,7 @@ export function LibraryPage({ onOpenMidi, onHome }: LibraryPageProps) {
         {query && <button className="search-clear" type="button" onClick={() => setQuery('')} aria-label={t('library.clearSearch')} title={t('library.clearSearch')}><X size={16} aria-hidden="true" /></button>}
       </div>
 
-      <div className="header-actions"><LanguageButton /><MidiImportButton onImport={onOpenMidi} /></div>
+      <div className="header-actions"><LanguageButton /><MidiImportButton onImport={onOpenMidi} onProcessed={(item, modalOpen) => { if (item && modalOpen) void openTrack(item as LibraryItem); else if (item) setItems(current => current.some(entry => entry.id === (item as LibraryItem).id) ? current : [...current, item as LibraryItem]); }} /></div>
     </header>
 
     <section className="library-content" aria-labelledby="library-title">

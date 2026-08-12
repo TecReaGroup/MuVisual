@@ -1,10 +1,13 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import { createReadStream } from 'node:fs';
-import { readdir, stat } from 'node:fs/promises';
+import { createReadStream, createWriteStream } from 'node:fs';
+import { mkdir, readdir, stat, rm } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { createServer } from 'node:http';
 import { extname, isAbsolute, join, relative, resolve } from 'node:path';
 import { loadEnvFile } from 'node:process';
 import { fileURLToPath } from 'node:url';
+import { openAsBlob } from 'node:fs';
 
 if (process.env.NODE_ENV !== 'production') {
   try {
@@ -19,12 +22,15 @@ const AUTH_PASSWORD = process.env.AUTH_PASSWORD;
 if (!AUTH_PASSWORD) throw new Error('AUTH_PASSWORD is required');
 
 const visualRoot = fileURLToPath(new URL('./data/visual/', import.meta.url));
+const modalRoot = fileURLToPath(new URL('./data/modal/', import.meta.url));
+const execFileAsync = promisify(execFile);
 const distRoot = fileURLToPath(new URL('../dist/', import.meta.url));
 const instrumentNames = ['piano', 'other', 'vocals', 'bass', 'drums', 'guitar'];
 const isProduction = process.env.NODE_ENV === 'production';
 const authCookieName = isProduction ? '__Host-muvisual_auth' : 'muvisual_auth';
 const sessionMaxAge = 30 * 24 * 60 * 60;
 const maxLoginBodySize = 4 * 1024;
+const maxUploadSize = 512 * 1024 * 1024;
 
 const staticContentTypes = {
   '.css': 'text/css; charset=utf-8',
@@ -118,15 +124,61 @@ function splitFolderName(folderName) {
     : { title: folderName.slice(0, separator), album: folderName.slice(separator + 1) };
 }
 
-async function readLibrary() {
-  const entries = await readdir(visualRoot, { withFileTypes: true });
-  const folders = entries.filter(entry => entry.isDirectory());
+async function resolveLibraryRoot(folderName) {
+  for (const root of [modalRoot, visualRoot]) {
+    try { const entry = await stat(join(root, folderName)); if (entry.isDirectory()) return root; } catch (error) { if (error?.code !== 'ENOENT') throw error; }
+  }
+  return null;
+}
 
-  const items = await Promise.all(folders.map(async folder => {
-    const folderPath = join(visualRoot, folder.name);
-    const id = encodeId(folder.name);
+async function readMultipartFile(request) {
+  const contentType = request.headers['content-type'] ?? '';
+  const boundaryMatch = contentType.match(/boundary=(?:"([^"]+)"|([^;]+))/i);
+  if (!boundaryMatch) throw Object.assign(new Error('Multipart upload required'), { statusCode: 415 });
+  const boundary = Buffer.from(`--${boundaryMatch[1] ?? boundaryMatch[2]}`);
+  const chunks = []; let size = 0;
+  for await (const chunk of request) { size += chunk.length; if (size > maxUploadSize) throw Object.assign(new Error('Audio file is too large'), { statusCode: 413 }); chunks.push(chunk); }
+  const body = Buffer.concat(chunks); const start = body.indexOf(Buffer.from('\r\n\r\n'));
+  const end = body.indexOf(Buffer.concat([Buffer.from('\r\n'), boundary]), start + 4);
+  if (start < 0 || end < 0) throw Object.assign(new Error('Missing upload field'), { statusCode: 400 });
+  const header = body.subarray(0, start).toString('utf8');
+  if (!/name="file"/i.test(header)) throw Object.assign(new Error('Upload field must be file'), { statusCode: 400 });
+  const filename = (header.match(/filename="([^"]+)"/i)?.[1] ?? 'audio.bin').replace(/[\\/]/g, '_');
+  return { filename, data: body.subarray(start + 4, end) };
+}
+
+async function processAudioUpload(request) {
+  if (!process.env.MODAL_URL) throw new Error('MODAL_URL is not configured');
+  const upload = await readMultipartFile(request);
+  const tempRoot = join(modalRoot, '.uploads'); await mkdir(tempRoot, { recursive: true });
+  const inputPath = join(tempRoot, `${Date.now()}-${upload.filename}`); const zipPath = `${inputPath}.zip`;
+  await (await import('node:fs/promises')).writeFile(inputPath, upload.data);
+  const form = new FormData(); form.set('file', await openAsBlob(inputPath), upload.filename);
+  const headers = {}; if (process.env.MODAL_KEY && process.env.MODAL_SECRET) { headers['Modal-Key'] = process.env.MODAL_KEY; headers['Modal-Secret'] = process.env.MODAL_SECRET; }
+  const result = await fetch(process.env.MODAL_URL, { method: 'POST', headers, body: form, redirect: 'follow', signal: AbortSignal.timeout(60 * 60 * 1000) });
+  if (!result.ok || !result.body) throw new Error(`Modal request failed (${result.status})`);
+  const type = result.headers.get('content-type') ?? ''; if (!type.includes('application/zip')) throw new Error(`Modal returned non-ZIP: ${type}`);
+  const output = createWriteStream(zipPath); for await (const chunk of result.body) output.write(chunk); output.end(); await new Promise((resolve, reject) => { output.on('close', resolve); output.on('error', reject); });
+  await mkdir(modalRoot, { recursive: true }); await execFileAsync('tar', ['-xf', zipPath, '-C', modalRoot]);
+  await rm(inputPath, { force: true }); await rm(zipPath, { force: true });
+  const entries = await readdir(modalRoot, { withFileTypes: true }); const folder = entries.find(entry => entry.isDirectory() && entry.name !== '.uploads');
+  return folder?.name ?? null;
+}
+
+async function readLibrary() {
+  const roots = [modalRoot, visualRoot];
+  const folderMap = new Map();
+  for (const root of roots) {
+    let entries = [];
+    try { entries = await readdir(root, { withFileTypes: true }); } catch (error) { if (error?.code !== 'ENOENT') throw error; }
+    for (const entry of entries.filter(item => item.isDirectory() && !item.name.startsWith('.'))) if (!folderMap.has(entry.name)) folderMap.set(entry.name, root);
+  }
+
+  const items = await Promise.all([...folderMap].map(async ([folderName, root]) => {
+    const folderPath = join(root, folderName);
+    const id = encodeId(folderName);
     const files = (await readdir(folderPath, { withFileTypes: true })).filter(file => file.isFile());
-    const sourceAudio = files.find(file => file.name === `${folder.name}.mp3`)
+    const sourceAudio = files.find(file => file.name === `${folderName}.mp3`)
       ?? files.find(file => file.name.toLowerCase().endsWith('.mp3'));
     const beatAnalysis = files.find(file => file.name.toLowerCase().endsWith('_beat.json'));
     const instruments = {};
@@ -150,7 +202,7 @@ async function readLibrary() {
     }
     const primaryFile = sourceAudio ?? beatAnalysis;
     const fileStats = primaryFile ? await stat(join(folderPath, primaryFile.name)) : null;
-    const { title, album } = splitFolderName(folder.name);
+    const { title, album } = splitFolderName(folderName);
     return {
       id,
       title,
@@ -208,10 +260,10 @@ async function streamFrontend(response, pathname) {
 
 async function findMedia(id, kind) {
   const folderName = decodeId(id);
-  const folders = await readdir(visualRoot, { withFileTypes: true });
-  if (!folders.some(folder => folder.isDirectory() && folder.name === folderName)) return null;
+  const root = await resolveLibraryRoot(folderName);
+  if (!root) return null;
 
-  const folderPath = join(visualRoot, folderName);
+  const folderPath = join(root, folderName);
   const files = (await readdir(folderPath, { withFileTypes: true })).filter(file => file.isFile());
   const matchers = {
     audio: file => file.name === `${folderName}.mp3` || file.name.toLowerCase().endsWith('.mp3'),
@@ -224,9 +276,9 @@ async function findMedia(id, kind) {
 async function findInstrumentMedia(id, instrument, kind) {
   if (!instrumentNames.includes(instrument)) return null;
   const folderName = decodeId(id);
-  const folders = await readdir(visualRoot, { withFileTypes: true });
-  if (!folders.some(folder => folder.isDirectory() && folder.name === folderName)) return null;
-  const instrumentPath = join(visualRoot, folderName, instrument);
+  const root = await resolveLibraryRoot(folderName);
+  if (!root) return null;
+  const instrumentPath = join(root, folderName, instrument);
   try {
     const files = (await readdir(instrumentPath, { withFileTypes: true })).filter(file => file.isFile());
     const file = kind === 'audio'
@@ -326,6 +378,14 @@ const server = createServer(async (request, response) => {
       return;
     }
 
+    if (request.method === 'POST' && url.pathname === '/api/process-audio') {
+      const folderName = await processAudioUpload(request);
+      if (!folderName) throw new Error('Modal ZIP did not contain a track folder');
+      const item = (await readLibrary()).find(entry => entry.id === encodeId(folderName));
+      sendJson(response, 201, { item });
+      return;
+    }
+
     const detailMatch = request.method === 'GET' && url.pathname.match(/^\/api\/library\/([^/]+)$/);
     if (detailMatch) {
       const item = (await readLibrary()).find(entry => entry.id === detailMatch[1]);
@@ -363,7 +423,7 @@ const server = createServer(async (request, response) => {
     sendJson(response, 404, { error: 'Route not found' });
   } catch (error) {
     console.error(error);
-    if (error?.statusCode === 400 || error?.statusCode === 413) {
+    if ([400, 413, 415].includes(error?.statusCode)) {
       sendJson(response, error.statusCode, { error: error.message });
       return;
     }

@@ -34,6 +34,7 @@ Thumbs.db
 Desktop.ini
 
 /backend/data/visual/**/*.json
+/backend/data/modal/**/*.json
 *.mid
 *.mp3
 *.wav
