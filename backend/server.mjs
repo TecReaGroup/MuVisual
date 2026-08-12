@@ -52,6 +52,7 @@ const staticContentTypes = {
 
 const encodeId = value => Buffer.from(value, 'utf8').toString('base64url');
 const decodeId = value => Buffer.from(value, 'base64url').toString('utf8');
+const encodeLibraryId = (source, folderName) => encodeId(`${source}:${folderName}`);
 
 function secureEqual(first, second) {
   const firstBuffer = Buffer.from(first);
@@ -124,9 +125,26 @@ function splitFolderName(folderName) {
     : { title: folderName.slice(0, separator), album: folderName.slice(separator + 1) };
 }
 
-async function resolveLibraryRoot(folderName) {
+async function resolveLibraryEntry(id) {
+  const decoded = decodeId(id);
+  const separator = decoded.indexOf(':');
+  if (separator !== -1) {
+    const source = decoded.slice(0, separator);
+    const folderName = decoded.slice(separator + 1);
+    const root = source === 'preset' ? visualRoot : source === 'upload' ? modalRoot : null;
+    if (!root) return null;
+    try {
+      const entry = await stat(join(root, folderName));
+      return entry.isDirectory() ? { folderName, root } : null;
+    } catch (error) {
+      if (error?.code === 'ENOENT') return null;
+      throw error;
+    }
+  }
+
+  const folderName = decoded;
   for (const root of [modalRoot, visualRoot]) {
-    try { const entry = await stat(join(root, folderName)); if (entry.isDirectory()) return root; } catch (error) { if (error?.code !== 'ENOENT') throw error; }
+    try { const entry = await stat(join(root, folderName)); if (entry.isDirectory()) return { folderName, root }; } catch (error) { if (error?.code !== 'ENOENT') throw error; }
   }
   return null;
 }
@@ -166,17 +184,16 @@ async function processAudioUpload(request) {
 }
 
 async function readLibrary() {
-  const roots = [modalRoot, visualRoot];
-  const folderMap = new Map();
-  for (const root of roots) {
+  const libraryFolders = [];
+  for (const [source, root] of [['preset', visualRoot], ['upload', modalRoot]]) {
     let entries = [];
     try { entries = await readdir(root, { withFileTypes: true }); } catch (error) { if (error?.code !== 'ENOENT') throw error; }
-    for (const entry of entries.filter(item => item.isDirectory() && !item.name.startsWith('.'))) if (!folderMap.has(entry.name)) folderMap.set(entry.name, root);
+    for (const entry of entries.filter(item => item.isDirectory() && !item.name.startsWith('.'))) libraryFolders.push({ folderName: entry.name, root, source });
   }
 
-  const items = await Promise.all([...folderMap].map(async ([folderName, root]) => {
+  const items = await Promise.all(libraryFolders.map(async ({ folderName, root, source }) => {
     const folderPath = join(root, folderName);
-    const id = encodeId(folderName);
+    const id = encodeLibraryId(source, folderName);
     const files = (await readdir(folderPath, { withFileTypes: true })).filter(file => file.isFile());
     const sourceAudio = files.find(file => file.name === `${folderName}.mp3`)
       ?? files.find(file => file.name.toLowerCase().endsWith('.mp3'));
@@ -207,6 +224,7 @@ async function readLibrary() {
       id,
       title,
       album,
+      source,
       audioUrl: sourceAudio ? `/media/${id}/audio` : null,
       beatUrl: beatAnalysis ? `/media/${id}/beats` : null,
       instruments,
@@ -259,9 +277,9 @@ async function streamFrontend(response, pathname) {
 }
 
 async function findMedia(id, kind) {
-  const folderName = decodeId(id);
-  const root = await resolveLibraryRoot(folderName);
-  if (!root) return null;
+  const libraryEntry = await resolveLibraryEntry(id);
+  if (!libraryEntry) return null;
+  const { folderName, root } = libraryEntry;
 
   const folderPath = join(root, folderName);
   const files = (await readdir(folderPath, { withFileTypes: true })).filter(file => file.isFile());
@@ -275,9 +293,9 @@ async function findMedia(id, kind) {
 
 async function findInstrumentMedia(id, instrument, kind) {
   if (!instrumentNames.includes(instrument)) return null;
-  const folderName = decodeId(id);
-  const root = await resolveLibraryRoot(folderName);
-  if (!root) return null;
+  const libraryEntry = await resolveLibraryEntry(id);
+  if (!libraryEntry) return null;
+  const { folderName, root } = libraryEntry;
   const instrumentPath = join(root, folderName, instrument);
   try {
     const files = (await readdir(instrumentPath, { withFileTypes: true })).filter(file => file.isFile());
@@ -381,7 +399,7 @@ const server = createServer(async (request, response) => {
     if (request.method === 'POST' && url.pathname === '/api/process-audio') {
       const folderName = await processAudioUpload(request);
       if (!folderName) throw new Error('Modal ZIP did not contain a track folder');
-      const item = (await readLibrary()).find(entry => entry.id === encodeId(folderName));
+      const item = (await readLibrary()).find(entry => entry.id === encodeLibraryId('upload', folderName));
       sendJson(response, 201, { item });
       return;
     }

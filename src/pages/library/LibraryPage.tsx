@@ -1,4 +1,4 @@
-import { ArrowUpRight, AudioLines, FileMusic, LoaderCircle, Search, Sparkles, X } from 'lucide-react';
+import { ArrowUpRight, AudioLines, FileMusic, LibraryBig, LoaderCircle, Search, Sparkles, Upload, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import type { Instrument } from '../../entities/music';
 import { MidiImportButton, parseMidiFile, type ImportedMidi, type MidiVariant } from '../../features/midi-import';
@@ -62,6 +62,11 @@ export function LibraryPage({ onOpenMidi, onHome }: LibraryPageProps) {
     return items.filter(item => `${item.title} ${item.album}`.toLocaleLowerCase(locale).includes(normalized));
   }, [items, language, query]);
 
+  const groupedItems = useMemo(() => ({
+    preset: filteredItems.filter(item => item.source === 'preset'),
+    upload: filteredItems.filter(item => item.source !== 'preset'),
+  }), [filteredItems]);
+
   const openTrack = async (item: LibraryItem) => {
     if (openingId) return;
     setOpeningId(item.id);
@@ -110,6 +115,29 @@ export function LibraryPage({ onOpenMidi, onHome }: LibraryPageProps) {
     }
   };
 
+  const renderTrackGrid = (sectionItems: LibraryItem[]) => <div className="library-grid">
+    {sectionItems.map((item, index) => <button
+      className="track-card"
+      key={item.id}
+      type="button"
+      disabled={openingId !== null}
+      onClick={() => void openTrack(item)}
+      aria-label={t('library.openTrack', { title: item.title })}
+    >
+      <span className="track-index">{String(index + 1).padStart(2, '0')}</span>
+      <span className="track-arrow">{openingId === item.id ? <LoaderCircle className="spin" size={17} /> : <ArrowUpRight size={17} />}</span>
+      <span className="waveform" aria-hidden="true">{waveform(item.id).map((height, barIndex) => <i key={barIndex} style={{ height: `${height}%` }} />)}</span>
+      <span className="track-copy">
+        <strong>{item.title}</strong>
+        <small>{item.album}</small>
+      </span>
+      <span className="track-meta">
+        <span><FileMusic size={13} /> {formatSize(item.size, t('library.mediaReady'))}</span>
+        <span>{Object.keys(item.instruments).length} {t('library.instrumentTracks')}</span>
+      </span>
+    </button>)}
+  </div>;
+
   return <main className="library-app">
     <header className="library-header">
       <button className="library-brand" type="button" aria-label={t('library.home')} onClick={goHome}>
@@ -140,27 +168,23 @@ export function LibraryPage({ onOpenMidi, onHome }: LibraryPageProps) {
 
       {loading ? <div className="library-state"><LoaderCircle className="spin" size={24} /><span>{t('library.loading')}</span></div>
         : filteredItems.length === 0 ? <div className="library-state"><Search size={24} /><span>{t('library.noResults', { query })}</span></div>
-          : <div className="library-grid">
-            {filteredItems.map((item, index) => <button
-              className="track-card"
-              key={item.id}
-              type="button"
-              disabled={openingId !== null}
-              onClick={() => void openTrack(item)}
-              aria-label={t('library.openTrack', { title: item.title })}
-            >
-              <span className="track-index">{String(index + 1).padStart(2, '0')}</span>
-              <span className="track-arrow">{openingId === item.id ? <LoaderCircle className="spin" size={17} /> : <ArrowUpRight size={17} />}</span>
-              <span className="waveform" aria-hidden="true">{waveform(item.id).map((height, barIndex) => <i key={barIndex} style={{ height: `${height}%` }} />)}</span>
-              <span className="track-copy">
-                <strong>{item.title}</strong>
-                <small>{item.album}</small>
-              </span>
-              <span className="track-meta">
-                <span><FileMusic size={13} /> {formatSize(item.size, t('library.mediaReady'))}</span>
-                <span>{Object.keys(item.instruments).length} {t('library.instrumentTracks')}</span>
-              </span>
-            </button>)}
+          : <div className="library-sections">
+            {groupedItems.preset.length > 0 && <section className="library-section" aria-labelledby="preset-library-title">
+              <div className="library-section-heading">
+                <span className="library-section-icon"><LibraryBig size={17} /></span>
+                <span><strong id="preset-library-title">{t('library.presetTitle')}</strong><small>{t('library.presetDescription')}</small></span>
+                <span className="library-section-count">{t('library.sectionCount', { count: groupedItems.preset.length })}</span>
+              </div>
+              {renderTrackGrid(groupedItems.preset)}
+            </section>}
+            {groupedItems.upload.length > 0 && <section className="library-section library-section-upload" aria-labelledby="upload-library-title">
+              <div className="library-section-heading">
+                <span className="library-section-icon"><Upload size={17} /></span>
+                <span><strong id="upload-library-title">{t('library.uploadTitle')}</strong><small>{t('library.uploadDescription')}</small></span>
+                <span className="library-section-count">{t('library.sectionCount', { count: groupedItems.upload.length })}</span>
+              </div>
+              {renderTrackGrid(groupedItems.upload)}
+            </section>}
           </div>}
     </section>
 

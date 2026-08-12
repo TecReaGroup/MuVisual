@@ -10,6 +10,7 @@ export type LibraryItem = {
     midiUrl: string | null;
   }>>;
   size: number;
+  source?: 'preset' | 'upload';
   title: string;
   updatedAt: string | null;
 };
