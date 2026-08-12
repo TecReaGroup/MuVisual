@@ -49,58 +49,36 @@ async function stageUpload(upload, requestId) {
   return { filename: upload.filename, inputPath, jobId, requestId, size: upload.data.length, zipPath: `${inputPath}.zip` };
 }
 
-async function requestModal(job) {
-  let result;
-  for (let attempt = 1; attempt <= 2; attempt += 1) {
-    const attemptStartedAt = Date.now();
-    log('info', 'Modal', '正在调用音频处理接口', { requestId: job.requestId, jobId: job.jobId, filename: job.filename, size: job.size, attempt });
-    try {
-      const form = new FormData();
-      form.set('file', await openAsBlob(job.inputPath), job.filename);
-      const headers = {};
-      if (environment.modalKey && environment.modalSecret) {
-        headers['Modal-Key'] = environment.modalKey;
-        headers['Modal-Secret'] = environment.modalSecret;
-      }
-      result = await fetch(environment.modalUrl, {
-        method: 'POST',
-        headers,
-        body: form,
-        redirect: 'follow',
-        signal: AbortSignal.timeout(60 * 60 * 1000),
-      });
-      log('info', 'Modal', '已收到音频处理响应', {
-        requestId: job.requestId,
-        jobId: job.jobId,
-        filename: job.filename,
-        attempt,
-        status: result.status,
-        contentType: result.headers.get('content-type'),
-        durationMs: Date.now() - attemptStartedAt,
-      });
-      break;
-    } catch (error) {
-      const socketClosed = error?.cause?.code === 'UND_ERR_SOCKET';
-      log(socketClosed && attempt < 2 ? 'warn' : 'error', 'Modal', socketClosed && attempt < 2 ? '接口连接中断，准备重试' : '音频处理接口调用失败', {
-        requestId: job.requestId,
-        jobId: job.jobId,
-        filename: job.filename,
-        attempt,
-        retrying: socketClosed && attempt < 2,
-        durationMs: Date.now() - attemptStartedAt,
-        error: serializeError(error),
-      });
-      if (!socketClosed || attempt === 2) throw error;
-    }
-  }
-  return result;
-}
+async function downloadModalResult(job) {
+  const startedAt = Date.now();
+  log('info', 'Modal', '正在上传音频并等待处理结果', { requestId: job.requestId, jobId: job.jobId, filename: job.filename, size: job.size });
+  await rm(job.zipPath, { force: true });
 
-async function processJob(job) {
-  if (!environment.modalUrl) throw new Error('MODAL_URL is not configured');
   try {
-    const result = await requestModal(job);
-    if (!result) throw new Error('Modal request did not return a response');
+    const form = new FormData();
+    form.set('file', await openAsBlob(job.inputPath), job.filename);
+    const headers = {};
+    if (environment.modalKey && environment.modalSecret) {
+      headers['Modal-Key'] = environment.modalKey;
+      headers['Modal-Secret'] = environment.modalSecret;
+    }
+    const result = await fetch(environment.modalUrl, {
+      method: 'POST',
+      headers,
+      body: form,
+      redirect: 'follow',
+      signal: AbortSignal.timeout(60 * 60 * 1000),
+    });
+    log('info', 'Modal', 'Modal 处理完成，开始下载结果', {
+      requestId: job.requestId,
+      jobId: job.jobId,
+      filename: job.filename,
+      status: result.status,
+      contentType: result.headers.get('content-type'),
+      contentLength: result.headers.get('content-length'),
+      durationMs: Date.now() - startedAt,
+    });
+
     if (!result.ok) {
       const detail = (await result.text()).slice(0, 2000);
       throw Object.assign(new Error(`Modal request failed (${result.status})`), { code: 'MODAL_HTTP_ERROR', statusCode: result.status, detail });
@@ -110,8 +88,37 @@ async function processJob(job) {
     const contentType = result.headers.get('content-type') ?? '';
     if (!contentType.includes('application/zip')) throw new Error(`Modal returned non-ZIP: ${contentType}`);
     await pipeline(Readable.fromWeb(result.body), createWriteStream(job.zipPath));
+
     const zipStats = await stat(job.zipPath);
-    log('info', 'Archive', '处理结果下载完成', { requestId: job.requestId, jobId: job.jobId, filename: job.filename, size: zipStats.size });
+    log('info', 'Archive', '处理结果下载完成', {
+      requestId: job.requestId,
+      jobId: job.jobId,
+      filename: job.filename,
+      size: zipStats.size,
+      durationMs: Date.now() - startedAt,
+    });
+  } catch (error) {
+    await rm(job.zipPath, { force: true });
+    log('error', 'Modal', 'Modal 处理或结果下载失败', {
+      requestId: job.requestId,
+      jobId: job.jobId,
+      filename: job.filename,
+      durationMs: Date.now() - startedAt,
+      error: serializeError(error),
+    });
+    if (error.code === 'MODAL_HTTP_ERROR') throw error;
+    throw Object.assign(new Error('Modal response transfer failed'), {
+      cause: error,
+      code: 'MODAL_TRANSFER_ERROR',
+      statusCode: 502,
+    });
+  }
+}
+
+async function processJob(job) {
+  if (!environment.modalUrl) throw new Error('MODAL_URL is not configured');
+  try {
+    await downloadModalResult(job);
 
     const { stdout } = await execFileAsync('tar', ['-tf', job.zipPath]);
     const folderName = stdout.split(/\r?\n/)

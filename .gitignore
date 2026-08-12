@@ -40,3 +40,5 @@ Desktop.ini
 *.m4a
 !public/audio/**/*.m4a
 !public/audio/**/*.ogg
+
+temp/

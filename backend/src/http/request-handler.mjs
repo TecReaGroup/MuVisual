@@ -11,6 +11,13 @@ import { readJsonBody, sendJson } from '../shared/http.mjs';
 import { streamMedia } from './media-handler.mjs';
 import { streamFrontend } from './static-handler.mjs';
 
+function isClientDisconnect(error, request, response) {
+  return request.aborted
+    || response.destroyed
+    || error?.code === 'ECONNRESET'
+    || error?.code === 'ECONNABORTED';
+}
+
 async function routeRequest(request, response, url, requestId) {
   const authenticated = hasValidSession(request);
 
@@ -111,12 +118,6 @@ export async function handleRequest(request, response) {
   let requestPath = request.url ?? '/';
   response.setHeader('X-Request-Id', requestId);
 
-  request.once('aborted', () => log('warn', 'HTTP', '客户端中断请求', {
-    requestId,
-    method: request.method,
-    path: requestPath,
-    durationMs: Date.now() - startedAt,
-  }));
   response.once('finish', () => {
     if (response.statusCode >= 400) log('warn', 'HTTP', '请求返回异常状态', {
       requestId,
@@ -132,6 +133,7 @@ export async function handleRequest(request, response) {
     requestPath = url.pathname;
     await routeRequest(request, response, url, requestId);
   } catch (error) {
+    if (isClientDisconnect(error, request, response)) return;
     log('error', 'HTTP', '请求处理失败', {
       requestId,
       method: request.method,
@@ -139,8 +141,10 @@ export async function handleRequest(request, response) {
       durationMs: Date.now() - startedAt,
       error: serializeError(error),
     });
-    if ([400, 413, 415].includes(error?.statusCode)) {
-      sendJson(response, error.statusCode, { error: error.message });
+    if ([400, 413, 415, 502].includes(error?.statusCode)) {
+      sendJson(response, error.statusCode, {
+        error: error.statusCode === 502 ? 'Audio processing service connection failed' : error.message,
+      });
       return;
     }
     sendJson(response, 500, { error: 'Unable to read the visual library' });

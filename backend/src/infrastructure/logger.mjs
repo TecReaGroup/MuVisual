@@ -65,8 +65,8 @@ function formatFields(fields) {
 }
 
 export function log(level, module, message, fields = {}) {
-  const label = levelLabels[level] ?? String(level).toUpperCase().slice(0, 3).padEnd(3);
-  const source = String(module).slice(0, 12).padEnd(12);
+  const label = levelLabels[level] ?? String(level).toUpperCase().slice(0, 3);
+  const source = String(module).slice(0, 12);
   const entry = `[${formatTimestamp(new Date())}] [${label}] [${source}] - ${message}${formatFields(fields)}`;
   if (level === 'error') console.error(entry);
   else if (level === 'warn') console.warn(entry);

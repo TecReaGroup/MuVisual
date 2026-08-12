@@ -1,6 +1,7 @@
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { extname } from 'node:path';
+import { pipeline } from 'node:stream/promises';
 
 export async function streamMedia(request, response, filePath) {
   const fileStats = await stat(filePath);
@@ -17,7 +18,7 @@ export async function streamMedia(request, response, filePath) {
       'Accept-Ranges': 'bytes',
       'Cache-Control': 'public, max-age=3600',
     });
-    createReadStream(filePath).pipe(response);
+    await pipeline(createReadStream(filePath), response);
     return;
   }
 
@@ -37,5 +38,5 @@ export async function streamMedia(request, response, filePath) {
     'Accept-Ranges': 'bytes',
     'Cache-Control': 'public, max-age=3600',
   });
-  createReadStream(filePath, { start, end }).pipe(response);
+  await pipeline(createReadStream(filePath, { start, end }), response);
 }
