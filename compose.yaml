@@ -13,3 +13,6 @@ services:
       NODE_ENV: production
       PORT: 8787
       AUTH_PASSWORD: "your-password"
+      MODAL_URL: "your-modal-url"
+      MODAL_KEY: "your-modal-key"
+      MODAL_SECRET: "your-modal-secret"
