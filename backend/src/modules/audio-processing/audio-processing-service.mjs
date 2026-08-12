@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { createWriteStream, openAsBlob } from 'node:fs';
-import { mkdir, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -13,6 +13,37 @@ import { log, serializeError } from '../../infrastructure/logger.mjs';
 const execFileAsync = promisify(execFile);
 let processingQueue = Promise.resolve();
 let queuedCount = 0;
+
+function decodeArchiveOutput(output) {
+  if (typeof output === 'string') return output;
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(output);
+  } catch {
+    return new TextDecoder('gb18030').decode(output);
+  }
+}
+
+function findArchiveFolder(output) {
+  return decodeArchiveOutput(output).split(/\r?\n/)
+    .map(entry => entry.replace(/\\/g, '/').replace(/^\.\//, '').split('/')[0])
+    .find(entry => entry && entry !== '.');
+}
+
+async function listTrackFolders() {
+  const entries = await readdir(paths.modalRoot, { withFileTypes: true });
+  return entries
+    .filter(entry => entry.isDirectory() && !entry.name.startsWith('.'))
+    .map(entry => entry.name);
+}
+
+function resolveExtractedFolder(expectedFolder, foldersBefore, foldersAfter) {
+  const existingFolders = new Set(foldersBefore);
+  const addedFolders = foldersAfter.filter(folderName => !existingFolders.has(folderName));
+  if (addedFolders.length === 1) return addedFolders[0];
+
+  const expectedName = expectedFolder.normalize('NFC');
+  return foldersAfter.find(folderName => folderName.normalize('NFC') === expectedName) ?? null;
+}
 
 function enqueue(job, task) {
   queuedCount += 1;
@@ -120,14 +151,19 @@ async function processJob(job) {
   try {
     await downloadModalResult(job);
 
-    const { stdout } = await execFileAsync('tar', ['-tf', job.zipPath]);
-    const folderName = stdout.split(/\r?\n/)
-      .map(entry => entry.replace(/\\/g, '/').replace(/^\.\//, '').split('/')[0])
-      .find(entry => entry && entry !== '.');
-    if (!folderName || folderName === '..') throw new Error('Modal ZIP did not contain a track folder');
+    const { stdout } = await execFileAsync('tar', ['-tf', job.zipPath], { encoding: 'buffer' });
+    const archiveFolder = findArchiveFolder(stdout);
+    if (!archiveFolder || archiveFolder === '..') throw new Error('Modal ZIP did not contain a track folder');
 
     await mkdir(paths.modalRoot, { recursive: true });
+    const foldersBefore = await listTrackFolders();
     await execFileAsync('tar', ['-xf', job.zipPath, '-C', paths.modalRoot]);
+    const foldersAfter = await listTrackFolders();
+    const folderName = resolveExtractedFolder(archiveFolder, foldersBefore, foldersAfter);
+    if (!folderName) throw Object.assign(new Error('Extracted track folder could not be resolved'), {
+      code: 'EXTRACTED_TRACK_FOLDER_NOT_FOUND',
+      detail: archiveFolder,
+    });
     log('info', 'Archive', '处理结果解压完成', { requestId: job.requestId, jobId: job.jobId, filename: job.filename, folderName });
     return folderName;
   } finally {
