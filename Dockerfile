@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM dhi.io/node:22-alpine3.23-dev AS builder
+FROM node:22-alpine3.23 AS builder
 
 WORKDIR /app
 
@@ -11,7 +11,7 @@ COPY . .
 RUN npm run build \
     && mkdir -p /runtime-data/visual
 
-FROM dhi.io/node:22-alpine3.23 AS runner
+FROM node:22-alpine3.23 AS runner
 
 WORKDIR /app
 
