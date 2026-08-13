@@ -1,16 +1,14 @@
-import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { createWriteStream, openAsBlob } from 'node:fs';
 import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { promisify } from 'node:util';
+import AdmZip from 'adm-zip';
 import { environment } from '../../config/environment.mjs';
 import { paths } from '../../config/paths.mjs';
 import { log, serializeError } from '../../infrastructure/logger.mjs';
 
-const execFileAsync = promisify(execFile);
 const pollIntervalMs = 5_000;
 const processingTimeoutMs = 20 * 60 * 1000;
 const retryableStatuses = new Set([408, 425, 429, 500, 502, 503, 504]);
@@ -23,19 +21,40 @@ let queuedCount = 0;
 const jobsRoot = join(paths.modalRoot, '.jobs');
 const uploadsRoot = join(paths.modalRoot, '.uploads');
 
-function decodeArchiveOutput(output) {
-  if (typeof output === 'string') return output;
-  try {
-    return new TextDecoder('utf-8', { fatal: true }).decode(output);
-  } catch {
-    return new TextDecoder('gb18030').decode(output);
-  }
+function extractionPath(job) {
+  return join(uploadsRoot, `${job.id}.extracted`);
 }
 
-function findArchiveFolder(output) {
-  return decodeArchiveOutput(output).split(/\r?\n/)
-    .map(entry => entry.replace(/\\/g, '/').replace(/^\.\//, '').split('/')[0])
-    .find(entry => entry && entry !== '.');
+function normalizeArchiveEntry(entryName) {
+  return entryName.replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/$/, '');
+}
+
+function inspectArchive(zip) {
+  const entries = zip.getEntries();
+  if (entries.length === 0) {
+    throw Object.assign(new Error('Modal returned an empty ZIP archive'), { code: 'RESULT_ZIP_EMPTY' });
+  }
+
+  const topLevelFolders = new Set();
+  for (const entry of entries) {
+    const entryName = normalizeArchiveEntry(entry.entryName);
+    if (!entryName) continue;
+    const segments = entryName.split('/');
+    if (entryName.includes('\0') || entryName.startsWith('/') || /^[a-zA-Z]:/.test(entryName) || segments.includes('..')) {
+      throw Object.assign(new Error(`Modal ZIP contains an unsafe path: ${entry.entryName}`), {
+        code: 'RESULT_ZIP_UNSAFE_PATH',
+      });
+    }
+    if (segments[0] !== '__MACOSX') topLevelFolders.add(segments[0]);
+  }
+
+  if (topLevelFolders.size !== 1) {
+    throw Object.assign(new Error('Modal ZIP must contain exactly one track folder'), {
+      code: 'RESULT_ZIP_INVALID_LAYOUT',
+      detail: [...topLevelFolders],
+    });
+  }
+  return [...topLevelFolders][0];
 }
 
 async function fileExists(filePath) {
@@ -46,21 +65,6 @@ async function fileExists(filePath) {
     if (error?.code === 'ENOENT') return false;
     throw error;
   }
-}
-
-async function listTrackFolders() {
-  const entries = await readdir(paths.modalRoot, { withFileTypes: true });
-  return entries
-    .filter(entry => entry.isDirectory() && !entry.name.startsWith('.'))
-    .map(entry => entry.name);
-}
-
-function resolveExtractedFolder(expectedFolder, foldersBefore, foldersAfter) {
-  const existingFolders = new Set(foldersBefore);
-  const addedFolders = foldersAfter.filter(folderName => !existingFolders.has(folderName));
-  if (addedFolders.length === 1) return addedFolders[0];
-  const expectedName = expectedFolder.normalize('NFC');
-  return foldersAfter.find(folderName => folderName.normalize('NFC') === expectedName) ?? null;
 }
 
 function jobFilePath(jobId) {
@@ -130,6 +134,7 @@ function enqueue(job) {
       await Promise.allSettled([
         rm(job.inputPath, { force: true }),
         rm(job.zipPath, { force: true }),
+        rm(extractionPath(job), { recursive: true, force: true }),
       ]);
       log('error', 'AudioQueue', '音频任务处理失败', {
         requestId: job.requestId,
@@ -304,10 +309,9 @@ async function waitForModalResult(job) {
       throw Object.assign(new Error(`Modal result polling failed (${response.status})`), { detail });
     }
 
-    const contentType = response.headers.get('content-type') ?? '';
-    if (!contentType.includes('application/zip')) throw new Error(`Modal returned non-ZIP result: ${contentType || 'unknown'}`);
     if (!response.body) throw new Error('Modal returned an empty ZIP response');
-    await updateJob(job, { status: 'downloading' });
+    const contentType = response.headers.get('content-type') ?? '';
+    await updateJob(job, { status: 'downloading', resultContentType: contentType || null });
     await rm(job.zipPath, { force: true });
     try {
       await pipeline(Readable.fromWeb(response.body), createWriteStream(job.zipPath));
@@ -324,17 +328,42 @@ async function waitForModalResult(job) {
 
 async function extractModalResult(job) {
   await updateJob(job, { status: 'extracting' });
-  const { stdout } = await execFileAsync('tar', ['-tf', job.zipPath], { encoding: 'buffer' });
-  const archiveFolder = findArchiveFolder(stdout);
-  if (!archiveFolder || archiveFolder === '..') throw new Error('Modal ZIP did not contain a track folder');
-  const foldersBefore = await listTrackFolders();
-  await execFileAsync('tar', ['-xf', job.zipPath, '-C', paths.modalRoot]);
-  const foldersAfter = await listTrackFolders();
-  const folderName = resolveExtractedFolder(archiveFolder, foldersBefore, foldersAfter);
-  if (!folderName) throw Object.assign(new Error('Extracted track folder could not be resolved'), {
-    code: 'EXTRACTED_TRACK_FOLDER_NOT_FOUND',
-    detail: archiveFolder,
-  });
+  let zip;
+  let folderName;
+  try {
+    zip = new AdmZip(job.zipPath);
+    folderName = inspectArchive(zip);
+  } catch (error) {
+    if (error?.code?.startsWith('RESULT_ZIP_')) throw error;
+    throw Object.assign(new Error(`Modal returned an invalid ZIP archive (${job.resultContentType || 'unknown content type'})`), {
+      cause: error,
+      code: 'RESULT_ZIP_INVALID',
+    });
+  }
+
+  const temporaryRoot = extractionPath(job);
+  const extractedFolder = join(temporaryRoot, folderName);
+  const destinationFolder = join(paths.modalRoot, folderName);
+  await rm(temporaryRoot, { recursive: true, force: true });
+  await mkdir(temporaryRoot, { recursive: true });
+  try {
+    await zip.extractAllToAsync(temporaryRoot, false, false);
+    const extractedStats = await stat(extractedFolder);
+    if (!extractedStats.isDirectory()) {
+      throw Object.assign(new Error('Modal ZIP top-level entry is not a track folder'), {
+        code: 'RESULT_ZIP_INVALID_LAYOUT',
+      });
+    }
+    if (await fileExists(destinationFolder)) {
+      throw Object.assign(new Error(`A track folder named "${folderName}" already exists`), {
+        code: 'TRACK_FOLDER_ALREADY_EXISTS',
+      });
+    }
+    await rename(extractedFolder, destinationFolder);
+  } finally {
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
+
   await updateJob(job, { status: 'completed', folderName, error: null });
   log('info', 'Archive', '处理结果解压完成', { requestId: job.requestId, jobId: job.id, filename: job.filename, folderName });
 }
@@ -354,6 +383,7 @@ async function processJob(job) {
       await Promise.allSettled([
         rm(job.inputPath, { force: true }),
         rm(job.zipPath, { force: true }),
+        rm(extractionPath(job), { recursive: true, force: true }),
       ]);
     }
   }
