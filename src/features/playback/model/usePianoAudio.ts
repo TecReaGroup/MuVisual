@@ -248,5 +248,5 @@ export function usePianoAudio(muted: boolean, volume: number, instrument: 'piano
     activeStopsRef.current.clear();
   }, []);
 
-  return { getAudioTime, loadStatus, playNote, prepare, stopAll };
+  return { getAudioContext, getAudioTime, loadStatus, playNote, prepare, stopAll };
 }
