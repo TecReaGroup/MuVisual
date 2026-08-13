@@ -213,6 +213,10 @@ function modalHeaders() {
   return headers;
 }
 
+function modalApiUrl(pathname) {
+  return `${environment.modalUrl.replace(/\/$/, '')}${pathname}`;
+}
+
 async function delay(duration = pollIntervalMs) {
   await new Promise(resolve => setTimeout(resolve, duration));
 }
@@ -221,7 +225,7 @@ async function submitModalJob(job) {
   await updateJob(job, { status: 'submitting', error: null });
   const form = new FormData();
   form.set('file', await openAsBlob(job.inputPath), job.filename);
-  const response = await fetch(environment.modalUrl, {
+  const response = await fetch(modalApiUrl('/submit'), {
     method: 'POST',
     headers: modalHeaders(),
     body: form,
@@ -245,7 +249,7 @@ async function submitModalJob(job) {
 }
 
 function modalResultUrl(callId) {
-  return `${environment.modalUrl.replace(/\/$/, '')}/${encodeURIComponent(callId)}`;
+  return modalApiUrl(`/result/${encodeURIComponent(callId)}`);
 }
 
 async function waitForModalResult(job) {
