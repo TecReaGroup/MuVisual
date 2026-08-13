@@ -22,14 +22,42 @@ export function MidiImportButton({ onImport, onProcessed }: { onImport: (midi: I
   }, [open]);
 
   const chooseMidi = (file: File) => void parseMidiFile(file).then(result => result && onImport(result));
+  const waitForAudioJob = async (jobId: string) => {
+    const retryableStatuses = new Set([408, 425, 429, 500, 502, 503, 504]);
+    while (true) {
+      await new Promise(resolve => window.setTimeout(resolve, 3000));
+      try {
+        const response = await fetch(`/api/process-audio/${encodeURIComponent(jobId)}`);
+        if (retryableStatuses.has(response.status)) continue;
+        if (!response.ok && response.status !== 202) throw new Error('job request failed');
+        const result = await response.json();
+        if (result.job?.status === 'failed') {
+          const error = new Error(result.job.error || 'audio processing failed');
+          if (result.job.errorCode) Object.assign(error, { code: result.job.errorCode });
+          throw error;
+        }
+        if (result.job?.status === 'completed' && result.item) return result.item;
+      } catch (error) {
+        if (error instanceof TypeError) continue;
+        throw error;
+      }
+    }
+  };
   const chooseAudio = async (file: File) => {
     setProcessing(true); setError(null);
     try {
       const form = new FormData(); form.set('file', file);
       const response = await fetch('/api/process-audio', { method: 'POST', body: form });
       if (!response.ok) throw new Error('upload failed');
-      const result = await response.json(); onProcessed?.(result.item, openRef.current);
-    } catch { setError(t('import.error')); } finally { setProcessing(false); }
+      const result = await response.json();
+      if (!result.job?.id) throw new Error('job id missing');
+      const item = await waitForAudioJob(result.job.id);
+      onProcessed?.(item, openRef.current);
+    } catch (processError) {
+      setError(t((processError as Error & { code?: string }).code === 'AUDIO_PROCESSING_TIMEOUT' ? 'import.timeout' : 'import.error'));
+      openRef.current = true;
+      setOpen(true);
+    } finally { setProcessing(false); }
   };
 
   return <>

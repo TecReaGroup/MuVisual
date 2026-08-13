@@ -9,7 +9,7 @@ RUN npm ci
 
 COPY . .
 RUN npm run build \
-    && mkdir -p /runtime-data/visual
+    && mkdir -p /runtime-data/visual /runtime-data/log
 
 FROM dhi.io/node:22-alpine3.23 AS runner
 

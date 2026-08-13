@@ -1,3 +1,6 @@
+import { appendFileSync, mkdirSync } from 'node:fs';
+import { paths } from '../config/paths.mjs';
+
 export function serializeError(error) {
   if (!(error instanceof Error)) return { message: String(error) };
   const cause = error.cause;
@@ -19,6 +22,15 @@ const levelLabels = {
   info: 'INF',
   warn: 'WRN',
 };
+
+let fileLoggingAvailable = true;
+
+try {
+  mkdirSync(paths.logRoot, { recursive: true });
+} catch (error) {
+  fileLoggingAvailable = false;
+  console.error(`Unable to create log directory ${paths.logRoot}:`, error);
+}
 
 function pad(value) {
   return String(value).padStart(2, '0');
@@ -72,4 +84,12 @@ export function log(level, module, message, fields = {}) {
   else if (level === 'warn') console.warn(entry);
   else if (level === 'debug') console.debug(entry);
   else console.log(entry);
+
+  if (!fileLoggingAvailable) return;
+  try {
+    appendFileSync(paths.logFile, `${entry}\n`, 'utf8');
+  } catch (error) {
+    fileLoggingAvailable = false;
+    console.error(`Unable to write log file ${paths.logFile}:`, error);
+  }
 }

@@ -3,7 +3,7 @@ import { extname } from 'node:path';
 import { environment } from '../config/environment.mjs';
 import { limits } from '../config/constants.mjs';
 import { log, serializeError } from '../infrastructure/logger.mjs';
-import { queueAudioProcessing } from '../modules/audio-processing/audio-processing-service.mjs';
+import { getAudioProcessingJob, queueAudioProcessing } from '../modules/audio-processing/audio-processing-service.mjs';
 import { readMultipartFile } from '../modules/audio-processing/multipart.mjs';
 import { createSession, hasValidSession, secureEqual, sessionCookie } from '../modules/auth/auth-service.mjs';
 import { encodeLibraryId, findInstrumentMedia, findMedia, readLibrary } from '../modules/library/library-service.mjs';
@@ -67,11 +67,25 @@ async function routeRequest(request, response, url, requestId) {
 
   if (request.method === 'POST' && url.pathname === '/api/process-audio') {
     const upload = await readMultipartFile(request, limits.uploadSize);
-    const folderName = await queueAudioProcessing(upload, requestId);
-    if (!folderName) throw new Error('Modal ZIP did not contain a track folder');
-    const item = (await readLibrary()).find(entry => entry.id === encodeLibraryId('upload', folderName));
-    if (!item) throw Object.assign(new Error('Processed track was not found after extraction'), { code: 'PROCESSED_TRACK_NOT_FOUND', detail: folderName });
-    sendJson(response, 201, { item });
+    const job = await queueAudioProcessing(upload, requestId);
+    sendJson(response, 202, { job });
+    return;
+  }
+
+  const audioJobMatch = request.method === 'GET' && url.pathname.match(/^\/api\/process-audio\/([^/]+)$/);
+  if (audioJobMatch) {
+    const job = await getAudioProcessingJob(audioJobMatch[1]);
+    if (!job) {
+      sendJson(response, 404, { error: 'Audio processing job not found' });
+      return;
+    }
+    if (job.status !== 'completed') {
+      sendJson(response, job.status === 'failed' ? 200 : 202, { job }, job.status === 'failed' ? {} : { 'Retry-After': '3' });
+      return;
+    }
+    const item = (await readLibrary()).find(entry => entry.id === encodeLibraryId('upload', job.folderName));
+    if (!item) throw Object.assign(new Error('Processed track was not found after extraction'), { code: 'PROCESSED_TRACK_NOT_FOUND', detail: job.folderName });
+    sendJson(response, 200, { job, item });
     return;
   }
 
