@@ -14,7 +14,7 @@ const execFileAsync = promisify(execFile);
 const pollIntervalMs = 5_000;
 const processingTimeoutMs = 20 * 60 * 1000;
 const retryableStatuses = new Set([408, 425, 429, 500, 502, 503, 504]);
-const activeStatuses = new Set(['queued', 'processing', 'downloading', 'extracting']);
+const activeStatuses = new Set(['queued', 'processing', 'extracting']);
 const jobs = new Map();
 let initialization;
 let processingQueue = Promise.resolve();
@@ -154,6 +154,7 @@ async function initializeJobs() {
     mkdir(uploadsRoot, { recursive: true }),
   ]);
   const entries = await readdir(jobsRoot, { withFileTypes: true });
+  const restoredJobs = [];
   for (const entry of entries.filter(item => item.isFile() && item.name.endsWith('.json'))) {
     try {
       const job = JSON.parse(await readFile(join(jobsRoot, entry.name), 'utf8'));
@@ -166,13 +167,24 @@ async function initializeJobs() {
         });
         continue;
       }
-      if (activeStatuses.has(job.status)) {
-        if (await fileExists(job.inputPath) || await fileExists(job.zipPath)) enqueue(job);
-        else await updateJob(job, { status: 'failed', error: 'Staged upload was lost before processing completed' });
+      if (job.status === 'downloading') {
+        await updateJob(job, {
+          status: 'failed',
+          error: 'Node restarted while downloading the processed ZIP; the completed download will not be requested twice',
+          errorCode: 'RESULT_DOWNLOAD_INTERRUPTED',
+        });
+        await rm(job.zipPath, { force: true });
+        continue;
       }
+      if (activeStatuses.has(job.status)) restoredJobs.push(job);
     } catch (error) {
       log('warn', 'AudioQueue', '无法恢复音频任务', { filename: entry.name, error: serializeError(error) });
     }
+  }
+  restoredJobs.sort((first, second) => Date.parse(first.createdAt) - Date.parse(second.createdAt));
+  for (const job of restoredJobs) {
+    if (await fileExists(job.inputPath) || await fileExists(job.zipPath)) enqueue(job);
+    else await updateJob(job, { status: 'failed', error: 'Staged upload was lost before processing completed' });
   }
 }
 
@@ -184,7 +196,7 @@ async function ensureInitialized() {
 async function stageUpload(upload, requestId) {
   await ensureInitialized();
   const id = randomUUID();
-  const inputPath = join(uploadsRoot, `${id}-${upload.filename}`);
+  const inputPath = join(uploadsRoot, `${id}.upload`);
   const now = new Date().toISOString();
   await writeFile(inputPath, upload.data);
   const job = {
@@ -193,7 +205,7 @@ async function stageUpload(upload, requestId) {
     filename: upload.filename,
     size: upload.data.length,
     inputPath,
-    zipPath: `${inputPath}.zip`,
+    zipPath: join(uploadsRoot, `${id}.zip`),
     status: 'queued',
     createdAt: now,
     updatedAt: now,
@@ -259,47 +271,53 @@ async function waitForModalResult(job) {
     if (!job.processingDeadlineAt || !Number.isFinite(deadlineAt) || remainingMs <= 0) {
       throw Object.assign(new Error('Audio processing exceeded the 20 minute limit'), { code: 'AUDIO_PROCESSING_TIMEOUT' });
     }
+
+    let response;
+    const controller = new AbortController();
+    const responseTimer = setTimeout(() => controller.abort(), Math.min(60_000, remainingMs));
     try {
-      const response = await fetch(modalResultUrl(job.modalCallId), {
+      response = await fetch(modalResultUrl(job.modalCallId), {
         headers: modalHeaders(),
         redirect: 'follow',
-        signal: AbortSignal.timeout(Math.min(60_000, remainingMs)),
+        signal: controller.signal,
       });
-      if (response.status === 202) {
+    } catch (error) {
+      if (error?.name !== 'AbortError' && error?.name !== 'TimeoutError' && error?.name !== 'TypeError') throw error;
+      log('warn', 'Modal', '查询任务结果连接异常，准备重试', { requestId: job.requestId, jobId: job.id, error: serializeError(error) });
+      await delay(Math.min(pollIntervalMs, Math.max(1, deadlineAt - Date.now())));
+      continue;
+    } finally {
+      clearTimeout(responseTimer);
+    }
+
+    if (response.status === 202) {
+      await delay(Math.min(pollIntervalMs, Math.max(1, deadlineAt - Date.now())));
+      continue;
+    }
+    if (!response.ok) {
+      const detail = (await response.text()).slice(0, 2000);
+      if (retryableStatuses.has(response.status)) {
+        log('warn', 'Modal', '查询任务结果暂时失败，准备重试', { requestId: job.requestId, jobId: job.id, status: response.status });
         await delay(Math.min(pollIntervalMs, Math.max(1, deadlineAt - Date.now())));
         continue;
       }
-      if (!response.ok) {
-        const detail = (await response.text()).slice(0, 2000);
-        if (retryableStatuses.has(response.status)) {
-          log('warn', 'Modal', '查询任务结果暂时失败，准备重试', { requestId: job.requestId, jobId: job.id, status: response.status });
-          await delay(Math.min(pollIntervalMs, Math.max(1, deadlineAt - Date.now())));
-          continue;
-        }
-        throw Object.assign(new Error(`Modal result polling failed (${response.status})`), { detail });
-      }
-      const contentType = response.headers.get('content-type') ?? '';
-      if (!contentType.includes('application/zip')) throw new Error(`Modal returned non-ZIP result: ${contentType || 'unknown'}`);
-      if (!response.body) throw new Error('Modal returned an empty ZIP response');
-      await updateJob(job, { status: 'downloading' });
-      await rm(job.zipPath, { force: true });
-      try {
-        await pipeline(Readable.fromWeb(response.body), createWriteStream(job.zipPath));
-        return;
-      } catch (error) {
-        await rm(job.zipPath, { force: true });
-        log('warn', 'Modal', '下载处理结果中断，准备重新查询结果', {
-          requestId: job.requestId,
-          jobId: job.id,
-          error: serializeError(error),
-        });
-        await updateJob(job, { status: 'processing' });
-        await delay(Math.min(pollIntervalMs, Math.max(1, deadlineAt - Date.now())));
-      }
+      throw Object.assign(new Error(`Modal result polling failed (${response.status})`), { detail });
+    }
+
+    const contentType = response.headers.get('content-type') ?? '';
+    if (!contentType.includes('application/zip')) throw new Error(`Modal returned non-ZIP result: ${contentType || 'unknown'}`);
+    if (!response.body) throw new Error('Modal returned an empty ZIP response');
+    await updateJob(job, { status: 'downloading' });
+    await rm(job.zipPath, { force: true });
+    try {
+      await pipeline(Readable.fromWeb(response.body), createWriteStream(job.zipPath));
+      return;
     } catch (error) {
-      if (error?.name !== 'TimeoutError' && error?.name !== 'TypeError') throw error;
-      log('warn', 'Modal', '查询任务结果连接异常，准备重试', { requestId: job.requestId, jobId: job.id, error: serializeError(error) });
-      await delay(Math.min(pollIntervalMs, Math.max(1, deadlineAt - Date.now())));
+      await rm(job.zipPath, { force: true });
+      throw Object.assign(new Error('Processed ZIP download failed'), {
+        cause: error,
+        code: 'RESULT_DOWNLOAD_FAILED',
+      });
     }
   }
 }
