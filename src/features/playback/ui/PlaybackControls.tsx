@@ -33,6 +33,7 @@ type PlaybackControlsProps = {
   muted: boolean;
   noteCount: number;
   playing: boolean;
+  resourceLoadStatus: 'loading' | 'ready' | 'error';
   volume: number;
   onBpmChange: (bpm: number) => void;
   onAudioSourceChange: (source: AudioSource) => void;
@@ -51,6 +52,7 @@ type PlaybackControlsProps = {
 export function PlaybackControls(props: PlaybackControlsProps) {
   const { t } = useI18n();
   const beatEnhanceActive = props.beatEnhanceEnabled && props.beatEnhanceAvailable;
+  const resourcesReady = props.resourceLoadStatus === 'ready';
   const changeBpm = (nextBpm: number) => props.onBpmChange(Math.max(30, Math.min(300, nextBpm)));
   const gridDelayMax = Math.max(2000, Math.ceil(props.gridDelay / 1000) * 1000);
 
@@ -61,9 +63,9 @@ export function PlaybackControls(props: PlaybackControlsProps) {
       <div><span>{formatTime(props.elapsed)}</span><span>{formatTime(props.duration)}</span></div>
     </div>
     <div className="transport">
-      <button className="primary" onClick={props.onToggle} aria-label={t(props.playing ? 'playback.pause' : 'playback.play')}>{props.playing ? <Pause size={20} /> : <Play size={20} fill="currentColor" />}</button>
+      <button className="primary" disabled={!props.playing && !resourcesReady} onClick={props.onToggle} aria-label={t(props.playing ? 'playback.pause' : resourcesReady ? 'playback.play' : 'playback.loadingResources')}>{props.playing ? <Pause size={20} /> : <Play size={20} fill="currentColor" />}</button>
       <button onClick={props.onReset} aria-label={t('playback.reset')}><RotateCcw size={18} /></button>
-      <div className="transport-copy"><strong>{t(props.playing ? 'playback.playing' : 'playback.ready')}</strong><span>{t('playback.summary', { bpm: props.bpm, count: props.noteCount })}</span></div>
+      <div className="transport-copy"><strong>{t(props.playing ? 'playback.playing' : resourcesReady ? 'playback.ready' : props.resourceLoadStatus === 'error' ? 'playback.loadError' : 'playback.loadingResources')}</strong><span>{t('playback.summary', { bpm: props.bpm, count: props.noteCount })}</span></div>
     </div>
     <div className="key-control">
       <label htmlFor="key-signature">{t('playback.keySignature')}</label>

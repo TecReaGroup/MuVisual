@@ -52,10 +52,11 @@ export function StudioPage({ initialMidi, onBack }: StudioPageProps) {
   );
   const playback = usePlayback(notes, muted, volume, audioSource, instrument, audioUrls);
   const loadStatusLabel = {
-    loading: t('studio.loading'),
+    loading: t('studio.loadingResources'),
     ready: t('studio.ready'),
     error: t('studio.loadError'),
   }[playback.loadStatus];
+  const resourcesReady = playback.loadStatus === 'ready';
 
   const handleImport = (midi: ImportedMidi) => {
     playback.reset();
@@ -97,7 +98,7 @@ export function StudioPage({ initialMidi, onBack }: StudioPageProps) {
     <header className="topbar">
       {onBack ? <button className="brand brand-back" type="button" onClick={onBack} aria-label={t('studio.back')}><ArrowLeft size={17} /><span className="brand-symbol"><AudioLines size={18} /></span><span><strong>MuVisual</strong><small>{t('studio.tagline')}</small></span></button>
         : <div className="brand"><span className="brand-symbol"><AudioLines size={18} /></span><div><strong>MuVisual</strong><span>{t('studio.tagline')}</span></div></div>}
-      <div className={`session timbre-status ${playback.loadStatus}`} role="status" aria-live="polite"><span className="status-dot" />{t('studio.timbre')} · {loadStatusLabel} <span className="divider" /><span className="loaded-name">{loadedName || t('studio.demoArrangement')}</span></div>
+      <div className={`session timbre-status ${playback.loadStatus}`} role="status" aria-live="polite"><span className="status-dot" />{resourcesReady ? `${t('studio.timbre')} · ${loadStatusLabel}` : loadStatusLabel} <span className="divider" /><span className="loaded-name">{loadedName || t('studio.demoArrangement')}</span></div>
       <div className="header-actions"><LanguageButton /><MidiImportButton onImport={handleImport} /></div>
     </header>
     <section className={`workspace ${controlsCollapsed ? 'controls-collapsed' : ''}`}>
@@ -137,6 +138,7 @@ export function StudioPage({ initialMidi, onBack }: StudioPageProps) {
           muted={muted}
           noteCount={notes.length}
           playing={playback.playing}
+          resourceLoadStatus={playback.loadStatus}
           volume={volume}
           onAudioSourceChange={handleAudioSourceChange}
           onBeatEnhanceChange={setBeatEnhance}

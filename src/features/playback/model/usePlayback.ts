@@ -11,6 +11,8 @@ type MediaKind = 'original' | 'instrument';
 type MediaBuffers = Partial<Record<MediaKind, AudioBuffer>>;
 type MediaSources = Partial<Record<MediaKind, AudioBufferSourceNode>>;
 type MediaGains = Partial<Record<MediaKind, GainNode>>;
+type LoadStatus = 'loading' | 'ready' | 'error';
+type MediaLoadState = { key: string; status: LoadStatus };
 
 function findNoteIndex(notes: Note[], time: number) {
   let low = 0;
@@ -34,6 +36,11 @@ export function usePlayback(
   const [playing, setPlaying] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [mediaDuration, setMediaDuration] = useState(0);
+  const mediaLoadKey = `${audioUrls.original ?? ''}\n${audioUrls.instrument ?? ''}`;
+  const [mediaLoadState, setMediaLoadState] = useState<MediaLoadState>(() => ({
+    key: mediaLoadKey,
+    status: audioUrls.original || audioUrls.instrument ? 'loading' : 'ready',
+  }));
   const elapsedRef = useRef(0);
   const lastElapsedCommitRef = useRef(0);
   const transportStartAudioTimeRef = useRef(0);
@@ -53,7 +60,7 @@ export function usePlayback(
   const mediaLoadRef = useRef<Promise<void>>(Promise.resolve());
   const midiMuted = muted || audioSource !== 'midi';
   const midiTimbre = instrument === 'piano' ? 'piano' : 'string';
-  const { getAudioContext, getAudioTime, loadStatus, playNote, prepare, stopAll } = usePianoAudio(midiMuted, volume, midiTimbre);
+  const { getAudioContext, getAudioTime, loadStatus: timbreLoadStatus, playNote, prepare, stopAll } = usePianoAudio(midiMuted, volume, midiTimbre);
   const sortedNotes = useMemo(() => [...notes].sort((first, second) => first.start - second.start), [notes]);
   const notesRef = useRef(sortedNotes);
   notesRef.current = sortedNotes;
@@ -62,6 +69,10 @@ export function usePlayback(
     [notes],
   );
   const duration = Math.max(midiDuration, mediaDuration);
+  const mediaLoadStatus = mediaLoadState.key === mediaLoadKey ? mediaLoadState.status : 'loading';
+  const loadStatus: LoadStatus = timbreLoadStatus === 'error' || mediaLoadStatus === 'error'
+    ? 'error'
+    : timbreLoadStatus === 'ready' && mediaLoadStatus === 'ready' ? 'ready' : 'loading';
 
   const ensureMediaGains = useCallback(() => {
     const context = getAudioContext();
@@ -126,6 +137,7 @@ export function usePlayback(
     ];
     mediaBuffersRef.current = {};
     setMediaDuration(0);
+    setMediaLoadState({ key: mediaLoadKey, status: entries.some(([, url]) => Boolean(url)) ? 'loading' : 'ready' });
     const load = Promise.all(entries.map(async ([kind, url]) => {
       if (!url) return;
       const response = await fetch(url, { signal: controller.signal });
@@ -136,9 +148,11 @@ export function usePlayback(
       if (controller.signal.aborted) return;
       const buffers = Object.values(mediaBuffersRef.current);
       setMediaDuration(buffers.reduce((maximum, buffer) => Math.max(maximum, buffer?.duration ?? 0), 0));
+      setMediaLoadState({ key: mediaLoadKey, status: 'ready' });
     }).catch(error => {
       if (error instanceof DOMException && error.name === 'AbortError') return;
       console.error(error);
+      setMediaLoadState({ key: mediaLoadKey, status: 'error' });
     });
     mediaLoadRef.current = load;
 
@@ -146,7 +160,7 @@ export function usePlayback(
       controller.abort();
       stopMedia();
     };
-  }, [audioUrls.instrument, audioUrls.original, getAudioContext, stopMedia]);
+  }, [audioUrls.instrument, audioUrls.original, getAudioContext, mediaLoadKey, stopMedia]);
 
   useEffect(() => {
     if (!playing) return;
@@ -222,6 +236,7 @@ export function usePlayback(
       pause();
       return;
     }
+    if (loadStatus !== 'ready') return;
     if (preparingRef.current) {
       startRequestRef.current += 1;
       preparingRef.current = false;
@@ -238,7 +253,7 @@ export function usePlayback(
     if (request !== startRequestRef.current) return;
     preparingRef.current = false;
     startAt(pausedRef.current);
-  }, [duration, pause, playing, prepare, startAt]);
+  }, [duration, loadStatus, pause, playing, prepare, startAt]);
 
   toggleRef.current = toggle;
   useEffect(() => {
