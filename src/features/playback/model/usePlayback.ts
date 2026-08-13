@@ -6,6 +6,9 @@ const SCHEDULE_INTERVAL_MS = 25;
 const SCHEDULE_LOOKAHEAD_SECONDS = 0.15;
 const START_LEAD_SECONDS = 0.1;
 const SEEK_SETTLE_MS = 80;
+const AUDIO_CACHE_NAME = 'muvisual-studio-audio-v1';
+const AUDIO_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const AUDIO_CACHE_TIME_HEADER = 'x-muvisual-cached-at';
 
 type MediaKind = 'original' | 'instrument';
 type MediaBuffers = Partial<Record<MediaKind, AudioBuffer>>;
@@ -13,6 +16,47 @@ type MediaSources = Partial<Record<MediaKind, AudioBufferSourceNode>>;
 type MediaGains = Partial<Record<MediaKind, GainNode>>;
 type LoadStatus = 'loading' | 'ready' | 'error';
 type MediaLoadState = { key: string; status: LoadStatus };
+
+async function fetchAudioResource(url: string, signal: AbortSignal) {
+  const request = new Request(url, { credentials: 'same-origin' });
+  let cache: Cache | null = null;
+
+  if ('caches' in window) {
+    try {
+      cache = await caches.open(AUDIO_CACHE_NAME);
+      const cached = await cache.match(request);
+      if (cached) {
+        const cachedAt = Number(cached.headers.get(AUDIO_CACHE_TIME_HEADER));
+        if (Number.isFinite(cachedAt) && Date.now() - cachedAt < AUDIO_CACHE_TTL_MS) {
+          return cached.arrayBuffer();
+        }
+        await cache.delete(request);
+      }
+    } catch {
+      cache = null;
+    }
+  }
+
+  const response = await fetch(request, { signal });
+  if (!response.ok) throw new Error(`Unable to load audio resource: ${url}`);
+  const data = await response.arrayBuffer();
+
+  if (cache) {
+    try {
+      const headers = new Headers(response.headers);
+      headers.set(AUDIO_CACHE_TIME_HEADER, String(Date.now()));
+      await cache.put(request, new Response(data.slice(0), {
+        status: response.status,
+        statusText: response.statusText,
+        headers,
+      }));
+    } catch {
+      // Playback can continue when persistent browser caching is unavailable.
+    }
+  }
+
+  return data;
+}
 
 function findNoteIndex(notes: Note[], time: number) {
   let low = 0;
@@ -32,14 +76,19 @@ export function usePlayback(
   audioSource: AudioSource = 'midi',
   instrument: Instrument = 'piano',
   audioUrls: { original: string | null; instrument: string | null } = { original: null, instrument: null },
+  resourceAudioUrls: string[] = [],
 ) {
   const [playing, setPlaying] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [mediaDuration, setMediaDuration] = useState(0);
-  const mediaLoadKey = `${audioUrls.original ?? ''}\n${audioUrls.instrument ?? ''}`;
+  const allAudioUrls = useMemo(
+    () => [...new Set([audioUrls.original, audioUrls.instrument, ...resourceAudioUrls].filter((url): url is string => Boolean(url)))].sort(),
+    [audioUrls.instrument, audioUrls.original, resourceAudioUrls],
+  );
+  const mediaLoadKey = allAudioUrls.join('\n');
   const [mediaLoadState, setMediaLoadState] = useState<MediaLoadState>(() => ({
     key: mediaLoadKey,
-    status: audioUrls.original || audioUrls.instrument ? 'loading' : 'ready',
+    status: allAudioUrls.length ? 'loading' : 'ready',
   }));
   const elapsedRef = useRef(0);
   const lastElapsedCommitRef = useRef(0);
@@ -55,6 +104,7 @@ export function usePlayback(
   const resumeAfterSeekRef = useRef(false);
   const toggleRef = useRef<() => void>(() => undefined);
   const mediaBuffersRef = useRef<MediaBuffers>({});
+  const resourceBuffersRef = useRef(new Map<string, AudioBuffer>());
   const mediaSourcesRef = useRef<MediaSources>({});
   const mediaGainsRef = useRef<MediaGains>({});
   const mediaLoadRef = useRef<Promise<void>>(Promise.resolve());
@@ -131,23 +181,16 @@ export function usePlayback(
   useEffect(() => {
     const context = getAudioContext();
     const controller = new AbortController();
-    const entries: Array<[MediaKind, string | null]> = [
-      ['original', audioUrls.original],
-      ['instrument', audioUrls.instrument],
-    ];
     mediaBuffersRef.current = {};
+    resourceBuffersRef.current = new Map();
     setMediaDuration(0);
-    setMediaLoadState({ key: mediaLoadKey, status: entries.some(([, url]) => Boolean(url)) ? 'loading' : 'ready' });
-    const load = Promise.all(entries.map(async ([kind, url]) => {
-      if (!url) return;
-      const response = await fetch(url, { signal: controller.signal });
-      if (!response.ok) throw new Error(`Unable to load ${kind} audio`);
-      const buffer = await context.decodeAudioData(await response.arrayBuffer());
-      if (!controller.signal.aborted) mediaBuffersRef.current[kind] = buffer;
-    })).then(() => {
+    setMediaLoadState({ key: mediaLoadKey, status: allAudioUrls.length ? 'loading' : 'ready' });
+    const load = Promise.all(allAudioUrls.map(async url => {
+      const buffer = await context.decodeAudioData(await fetchAudioResource(url, controller.signal));
+      return [url, buffer] as const;
+    })).then(decodedEntries => {
       if (controller.signal.aborted) return;
-      const buffers = Object.values(mediaBuffersRef.current);
-      setMediaDuration(buffers.reduce((maximum, buffer) => Math.max(maximum, buffer?.duration ?? 0), 0));
+      resourceBuffersRef.current = new Map(decodedEntries);
       setMediaLoadState({ key: mediaLoadKey, status: 'ready' });
     }).catch(error => {
       if (error instanceof DOMException && error.name === 'AbortError') return;
@@ -160,7 +203,16 @@ export function usePlayback(
       controller.abort();
       stopMedia();
     };
-  }, [audioUrls.instrument, audioUrls.original, getAudioContext, mediaLoadKey, stopMedia]);
+  }, [getAudioContext, mediaLoadKey, stopMedia]);
+
+  useEffect(() => {
+    if (mediaLoadStatus !== 'ready') return;
+    mediaBuffersRef.current = {};
+    if (audioUrls.original) mediaBuffersRef.current.original = resourceBuffersRef.current.get(audioUrls.original);
+    if (audioUrls.instrument) mediaBuffersRef.current.instrument = resourceBuffersRef.current.get(audioUrls.instrument);
+    const buffers = Object.values(mediaBuffersRef.current);
+    setMediaDuration(buffers.reduce((maximum, buffer) => Math.max(maximum, buffer?.duration ?? 0), 0));
+  }, [audioUrls.instrument, audioUrls.original, mediaLoadStatus]);
 
   useEffect(() => {
     if (!playing) return;

@@ -46,11 +46,15 @@ export function StudioPage({ initialMidi, onBack }: StudioPageProps) {
   const [audioUrls, setAudioUrls] = useState(() => initialMidi?.audioUrls ?? { original: null, instrument: null });
   const [beatAnalysis, setBeatAnalysis] = useState<BeatAnalysis | null>(() => initialMidi?.beatAnalysis ?? null);
   const [beatEnhance, setBeatEnhance] = useState(true);
+  const resourceAudioUrls = useMemo(
+    () => [...new Set([audioUrls.original, ...Object.values(instruments).map(media => media?.audioUrl)].filter((url): url is string => Boolean(url)))],
+    [audioUrls.original, instruments],
+  );
   const timeline = useMemo(
     () => createMusicalTimeline(bpm, gridDelay, beatEnhance ? beatAnalysis : null),
     [beatAnalysis, beatEnhance, bpm, gridDelay],
   );
-  const playback = usePlayback(notes, muted, volume, audioSource, instrument, audioUrls);
+  const playback = usePlayback(notes, muted, volume, audioSource, instrument, audioUrls, resourceAudioUrls);
   const loadStatusLabel = {
     loading: t('studio.loadingResources'),
     ready: t('studio.ready'),
