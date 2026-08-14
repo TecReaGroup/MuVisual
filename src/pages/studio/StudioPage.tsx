@@ -113,7 +113,7 @@ export function StudioPage({ initialMidi, onBack }: StudioPageProps) {
         playback.seek(Math.max(0, Math.min(playback.duration, playback.getElapsed() + event.deltaY / 240 * beatStep)));
       } : undefined}>
         {viewMode === 'roll'
-          ? <PianoRoll duration={playback.duration} elapsed={playback.elapsed} getElapsed={playback.getElapsed} keySignature={keySignature} labelMode={labelMode} notes={notes} timeline={timeline} onChordChange={setChordName} onSeek={playback.seek} />
+          ? <PianoRoll duration={playback.duration} getElapsed={playback.getElapsed} keySignature={keySignature} labelMode={labelMode} notes={notes} timeline={timeline} onChordChange={setChordName} onSeek={playback.seek} />
           : <JianpuView bpm={bpm} notes={notes} getElapsed={playback.getElapsed} keySignature={keySignature} timeline={timeline} />}
         <div className="canvas-label">
           <span>{t(viewMode === 'roll' ? 'studio.liveVisualizer' : 'studio.numberedNotation')}</span>

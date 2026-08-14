@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { memo, useEffect, useMemo, useRef } from 'react';
 import { END_MIDI, isWhitePitch, numberForPitch, PITCH_NAMES, START_MIDI } from '../../../entities/music/lib/pitch';
 import type { MusicalTimeline } from '../../../entities/music/lib/musicalTimeline';
 import type { LabelMode, Note } from '../../../entities/music/model/types';
@@ -9,7 +9,6 @@ type PianoKey = { x: number; w: number; h: number; black: boolean };
 
 type PianoRollProps = {
   duration: number;
-  elapsed: number;
   getElapsed: () => number;
   keySignature: string;
   labelMode: LabelMode;
@@ -35,9 +34,8 @@ function lowerBound(notes: Note[], time: number, inclusive: boolean) {
   return low;
 }
 
-export function PianoRoll({
+export const PianoRoll = memo(function PianoRoll({
   duration,
-  elapsed,
   getElapsed,
   keySignature,
   labelMode,
@@ -48,6 +46,7 @@ export function PianoRoll({
 }: PianoRollProps) {
   const { t } = useI18n();
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const scrollbarRef = useRef<HTMLInputElement>(null);
   const sortedNotes = useMemo(() => [...notes].sort((first, second) => first.start - second.start), [notes]);
   const maxNoteDuration = useMemo(
     () => sortedNotes.reduce((maximum, note) => Math.max(maximum, note.duration), 0),
@@ -71,6 +70,7 @@ export function PianoRoll({
     let whiteKeys: Array<[number, PianoKey]> = [];
     let blackKeys: Array<[number, PianoKey]> = [];
     let needsRedraw = true;
+    let activePitchSignature = '';
 
     const resize = () => {
       width = canvas.clientWidth;
@@ -134,20 +134,25 @@ export function PianoRoll({
       context.stroke();
 
       const gridLines = timeline.gridLines(time, viewEnd, 4);
-      ([1, 0] as const).forEach(pass => {
-        const lines = gridLines.filter(line => pass ? line.subdivision !== 0 : line.subdivision === 0);
-        lines.forEach(line => {
+      const drawGridLines = (
+        matches: (line: (typeof gridLines)[number]) => boolean,
+        strokeStyle: string,
+        lineWidth: number,
+      ) => {
+        context.strokeStyle = strokeStyle;
+        context.lineWidth = lineWidth;
+        context.beginPath();
+        gridLines.forEach(line => {
+          if (!matches(line)) return;
           const y = bottom - (line.time - time) * pixelsPerSecond;
-          context.strokeStyle = line.downbeat
-            ? 'rgba(255,107,95,.30)'
-            : line.subdivision === 0 ? 'rgba(255,255,255,.11)' : 'rgba(255,255,255,.035)';
-          context.lineWidth = line.downbeat ? 1.5 : 1;
-          context.beginPath();
           context.moveTo(0, y);
           context.lineTo(width, y);
-          context.stroke();
         });
-      });
+        context.stroke();
+      };
+      drawGridLines(line => line.subdivision !== 0, 'rgba(255,255,255,.035)', 1);
+      drawGridLines(line => line.subdivision === 0 && !line.downbeat, 'rgba(255,255,255,.11)', 1);
+      drawGridLines(line => line.downbeat, 'rgba(255,107,95,.30)', 1.5);
 
       const activePitches = new Set<number>();
       let currentFont = '';
@@ -185,18 +190,25 @@ export function PianoRoll({
         }
       }
 
-      const chord = recognizeChord(activePitches);
-      if (chord !== chordRef.current) {
-        chordRef.current = chord;
-        onChordChange(chord);
+      const nextActivePitchSignature = [...activePitches].sort((first, second) => first - second).join(',');
+      if (nextActivePitchSignature !== activePitchSignature) {
+        activePitchSignature = nextActivePitchSignature;
+        const chord = recognizeChord(activePitches);
+        if (chord !== chordRef.current) {
+          chordRef.current = chord;
+          onChordChange(chord);
+        }
       }
 
+      context.beginPath();
       whiteKeys.forEach(([pitch, key]) => {
         context.fillStyle = activePitches.has(pitch) ? '#ff6b5f' : '#e9ebef';
         context.fillRect(key.x, bottom, key.w, key.h);
-        context.strokeStyle = '#15171c';
-        context.strokeRect(key.x, bottom, key.w, key.h);
+        context.rect(key.x, bottom, key.w, key.h);
       });
+      context.strokeStyle = '#15171c';
+      context.lineWidth = 1;
+      context.stroke();
       blackKeys.forEach(([pitch, key]) => {
         context.fillStyle = activePitches.has(pitch) ? '#ff6b5f' : '#1b1e26';
         context.fillRect(key.x, bottom, key.w, key.h);
@@ -206,6 +218,7 @@ export function PianoRoll({
     let drawRaf = 0;
     let lastFrameTime = 0;
     let lastPlaybackTime = Number.NaN;
+    let lastScrollbarUpdateTime = 0;
     const loop = (frameTime: number) => {
       const playbackTime = getElapsed();
       if (needsRedraw || (frameTime - lastFrameTime >= 15 && playbackTime !== lastPlaybackTime)) {
@@ -213,6 +226,10 @@ export function PianoRoll({
         lastFrameTime = frameTime;
         lastPlaybackTime = playbackTime;
         needsRedraw = false;
+      }
+      if (frameTime - lastScrollbarUpdateTime >= 100 && scrollbarRef.current) {
+        scrollbarRef.current.value = String(Math.min(playbackTime, duration));
+        lastScrollbarUpdateTime = frameTime;
       }
       drawRaf = requestAnimationFrame(loop);
     };
@@ -223,19 +240,20 @@ export function PianoRoll({
       cancelAnimationFrame(drawRaf);
       window.removeEventListener('resize', resize);
     };
-  }, [getElapsed, keySignature, labelMode, maxNoteDuration, onChordChange, sortedNotes, timeline]);
+  }, [duration, getElapsed, keySignature, labelMode, maxNoteDuration, onChordChange, sortedNotes, timeline]);
 
   return <>
     <canvas ref={canvasRef} />
     <input
+      ref={scrollbarRef}
       className="roll-scrollbar"
       type="range"
       min="0"
       max={duration}
       step="0.01"
-      value={Math.min(elapsed, duration)}
+      defaultValue="0"
       onChange={event => onSeek(+event.target.value)}
       aria-label={t('pianoRoll.scroll')}
     />
   </>;
-}
+});
