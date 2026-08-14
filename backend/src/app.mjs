@@ -5,9 +5,10 @@ import { handleRequest } from './http/request-handler.mjs';
 export function createApp() {
   const server = createServer(handleRequest);
   server.on('clientError', (error, socket) => {
-    // Media clients commonly close sockets after preload or range reads.
-    // Node reports that normal connection lifecycle as ECONNRESET.
-    if (error?.code === 'ECONNRESET' || error?.code === 'ECONNABORTED') {
+    // Disconnects and malformed methods are expected from media clients and public network probes.
+    if (error?.code === 'ECONNRESET'
+      || error?.code === 'ECONNABORTED'
+      || error?.code === 'HPE_INVALID_METHOD') {
       if (socket.writable) socket.end();
       return;
     }

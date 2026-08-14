@@ -133,7 +133,7 @@ export async function handleRequest(request, response) {
   response.setHeader('X-Request-Id', requestId);
 
   response.once('finish', () => {
-    if (response.statusCode >= 400) log('warn', 'HTTP', '请求返回异常状态', {
+    if (response.statusCode >= 500) log('warn', 'HTTP', '请求返回服务端异常状态', {
       requestId,
       method: request.method,
       path: requestPath,
