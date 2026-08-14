@@ -21,10 +21,6 @@ let queuedCount = 0;
 const jobsRoot = join(paths.modalRoot, '.jobs');
 const uploadsRoot = join(paths.modalRoot, '.uploads');
 
-function extractionPath(job) {
-  return join(uploadsRoot, `${job.id}.extracted`);
-}
-
 function normalizeArchiveEntry(entryName) {
   return entryName.replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/$/, '');
 }
@@ -55,6 +51,13 @@ function inspectArchive(zip) {
     });
   }
   return [...topLevelFolders][0];
+}
+
+function discardMacMetadata(zip) {
+  for (const entry of [...zip.getEntries()]) {
+    const entryName = normalizeArchiveEntry(entry.entryName);
+    if (entryName.split('/')[0] === '__MACOSX') zip.deleteFile(entry);
+  }
 }
 
 async function fileExists(filePath) {
@@ -134,7 +137,6 @@ function enqueue(job) {
       await Promise.allSettled([
         rm(job.inputPath, { force: true }),
         rm(job.zipPath, { force: true }),
-        rm(extractionPath(job), { recursive: true, force: true }),
       ]);
       log('error', 'AudioQueue', '音频任务处理失败', {
         requestId: job.requestId,
@@ -327,7 +329,7 @@ async function waitForModalResult(job) {
 }
 
 async function extractModalResult(job) {
-  await updateJob(job, { status: 'extracting' });
+  const resumedExtraction = job.status === 'extracting';
   let zip;
   let folderName;
   try {
@@ -341,27 +343,35 @@ async function extractModalResult(job) {
     });
   }
 
-  const temporaryRoot = extractionPath(job);
-  const extractedFolder = join(temporaryRoot, folderName);
   const destinationFolder = join(paths.modalRoot, folderName);
-  await rm(temporaryRoot, { recursive: true, force: true });
-  await mkdir(temporaryRoot, { recursive: true });
+  if (resumedExtraction && job.folderName === folderName) {
+    await rm(destinationFolder, { recursive: true, force: true });
+  }
+
+  await updateJob(job, { status: 'extracting', folderName });
+  let destinationClaimed = false;
   try {
-    await zip.extractAllToAsync(temporaryRoot, false, false);
-    const extractedStats = await stat(extractedFolder);
+    try {
+      await mkdir(destinationFolder);
+      destinationClaimed = true;
+    } catch (error) {
+      if (error?.code !== 'EEXIST') throw error;
+      throw Object.assign(new Error(`A track folder named "${folderName}" already exists`), {
+        code: 'TRACK_FOLDER_ALREADY_EXISTS',
+      });
+    }
+
+    discardMacMetadata(zip);
+    await zip.extractAllToAsync(paths.modalRoot, false, false);
+    const extractedStats = await stat(destinationFolder);
     if (!extractedStats.isDirectory()) {
       throw Object.assign(new Error('Modal ZIP top-level entry is not a track folder'), {
         code: 'RESULT_ZIP_INVALID_LAYOUT',
       });
     }
-    if (await fileExists(destinationFolder)) {
-      throw Object.assign(new Error(`A track folder named "${folderName}" already exists`), {
-        code: 'TRACK_FOLDER_ALREADY_EXISTS',
-      });
-    }
-    await rename(extractedFolder, destinationFolder);
-  } finally {
-    await rm(temporaryRoot, { recursive: true, force: true });
+  } catch (error) {
+    if (destinationClaimed) await rm(destinationFolder, { recursive: true, force: true });
+    throw error;
   }
 
   await updateJob(job, { status: 'completed', folderName, error: null });
@@ -383,7 +393,6 @@ async function processJob(job) {
       await Promise.allSettled([
         rm(job.inputPath, { force: true }),
         rm(job.zipPath, { force: true }),
-        rm(extractionPath(job), { recursive: true, force: true }),
       ]);
     }
   }
