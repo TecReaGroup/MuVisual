@@ -5,6 +5,8 @@ import type { LabelMode, Note } from '../../../entities/music/model/types';
 import { useI18n } from '../../../shared/i18n';
 import { recognizeChord } from '../model/recognizeChord';
 
+const DRAW_FRAME_INTERVAL_MS = 1000 / 120;
+
 type PianoKey = { x: number; w: number; h: number; black: boolean };
 
 type PianoRollProps = {
@@ -221,9 +223,12 @@ export const PianoRoll = memo(function PianoRoll({
     let lastScrollbarUpdateTime = 0;
     const loop = (frameTime: number) => {
       const playbackTime = getElapsed();
-      if (needsRedraw || (frameTime - lastFrameTime >= 15 && playbackTime !== lastPlaybackTime)) {
+      const timeSinceLastFrame = frameTime - lastFrameTime;
+      if (needsRedraw || (timeSinceLastFrame >= DRAW_FRAME_INTERVAL_MS && playbackTime !== lastPlaybackTime)) {
         draw(playbackTime);
-        lastFrameTime = frameTime;
+        lastFrameTime = needsRedraw
+          ? frameTime
+          : frameTime - timeSinceLastFrame % DRAW_FRAME_INTERVAL_MS;
         lastPlaybackTime = playbackTime;
         needsRedraw = false;
       }
