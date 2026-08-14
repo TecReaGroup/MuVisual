@@ -13,6 +13,7 @@
     "@tonejs/midi": "^2.0.28",
     "adm-zip": "^0.5.18",
     "lucide-react": "^0.468.0",
+    "mediabunny": "^1.53.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "smplr": "^0.15.0"

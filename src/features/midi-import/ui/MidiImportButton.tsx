@@ -2,6 +2,7 @@ import { ArrowRight, AudioLines, FileMusic, FileUp, LoaderCircle, X } from 'luci
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useI18n } from '../../../shared/i18n';
+import { prepareAudioWithMetadata, readAudioMetadata, supportedAudioAccept, supportsAudioMetadata } from '../lib/audioMetadata';
 import { parseMidiFile, type ImportedMidi } from '../model/parseMidiFile';
 
 export function MidiImportButton({ onImport, onProcessed }: { onImport: (midi: ImportedMidi) => void; onProcessed?: (item: unknown, modalOpen: boolean) => void }) {
@@ -9,10 +10,22 @@ export function MidiImportButton({ onImport, onProcessed }: { onImport: (midi: I
   const [open, setOpen] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [audioFormOpen, setAudioFormOpen] = useState(false);
+  const [audioFile, setAudioFile] = useState<File | null>(null);
+  const [songTitle, setSongTitle] = useState('');
+  const [albumTitle, setAlbumTitle] = useState('');
   const openRef = useRef(false);
   const midiInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
-  const closeModal = () => { openRef.current = false; setOpen(false); };
+  const closeModal = () => {
+    openRef.current = false;
+    setOpen(false);
+    setAudioFormOpen(false);
+    setAudioFile(null);
+    setSongTitle('');
+    setAlbumTitle('');
+    setError(null);
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -43,10 +56,38 @@ export function MidiImportButton({ onImport, onProcessed }: { onImport: (midi: I
       }
     }
   };
-  const chooseAudio = async (file: File) => {
+  const selectAudio = async (file: File) => {
+    if (!supportsAudioMetadata(file)) {
+      setAudioFile(null);
+      setSongTitle('');
+      setAlbumTitle('');
+      setError(t('import.unsupportedAudio'));
+      return;
+    }
+    try {
+      const tags = await readAudioMetadata(file);
+      setError(null);
+      setAudioFile(file);
+      setSongTitle(tags.title);
+      setAlbumTitle(tags.album);
+    } catch {
+      setAudioFile(null);
+      setSongTitle('');
+      setAlbumTitle('');
+      setError(t('import.unsupportedAudio'));
+    }
+  };
+  const chooseAudio = async () => {
+    const title = songTitle.trim();
+    const album = albumTitle.trim();
+    if (!audioFile || !title || !album) {
+      setError(t('import.metadataRequired'));
+      return;
+    }
     setProcessing(true); setError(null);
     try {
-      const form = new FormData(); form.set('file', file);
+      const taggedFile = await prepareAudioWithMetadata(audioFile, title, album);
+      const form = new FormData(); form.set('file', taggedFile);
       const response = await fetch('/api/process-audio', { method: 'POST', body: form });
       if (!response.ok) throw new Error('upload failed');
       const result = await response.json();
@@ -65,18 +106,33 @@ export function MidiImportButton({ onImport, onProcessed }: { onImport: (midi: I
     {open && createPortal(<div className="modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) closeModal(); }}><div className="import-modal" role="dialog" aria-modal="true" aria-labelledby="import-title">
       <div className="import-modal-header">
         <span className="import-modal-mark"><FileUp size={18} /></span>
-        <div><span className="import-modal-kicker">MU VISUAL</span><h2 id="import-title">{t('import.title')}</h2></div>
+        <div><span className="import-modal-kicker">MUVISUAL</span><h2 id="import-title">{t('import.title')}</h2></div>
         <button className="modal-close" type="button" onClick={closeModal} aria-label={t('import.close')} title={t('import.close')}><X size={18} /></button>
       </div>
-      {processing ? <div className="processing-state"><span className="processing-spinner"><LoaderCircle className="spin" size={30} /></span><strong>{t('import.processing')}</strong><span>{t('import.processingHint')}</span></div> : <div className="import-options">
+      {processing ? <div className="processing-state"><span className="processing-spinner"><LoaderCircle className="spin" size={30} /></span><strong>{t('import.processing')}</strong><span>{t('import.processingHint')}</span></div> : audioFormOpen ? <form className="audio-upload-form" onSubmit={event => { event.preventDefault(); void chooseAudio(); }}>
+        <button className="audio-add-area" type="button" onClick={() => audioInputRef.current?.click()}>
+          <span className="audio-add-icon"><AudioLines size={25} /></span>
+          <strong>{audioFile ? audioFile.name : t('import.addAudio')}</strong>
+          <small>{audioFile ? t('import.replaceAudio') : t('import.addAudioHint')}</small>
+        </button>
+        <label className="audio-metadata-field">
+          <span>{t('import.songTitle')}</span>
+          <input value={songTitle} onChange={event => { setSongTitle(event.target.value); setError(null); }} placeholder={t('import.songTitlePlaceholder')} required />
+        </label>
+        <label className="audio-metadata-field">
+          <span>{t('import.albumTitle')}</span>
+          <input value={albumTitle} onChange={event => { setAlbumTitle(event.target.value); setError(null); }} placeholder={t('import.albumTitlePlaceholder')} required />
+        </label>
+        <button className="audio-upload-submit" type="submit" disabled={!audioFile}><FileUp size={16} /> {t('import.submitAudio')}</button>
+        <input ref={audioInputRef} className="import-file-input" type="file" accept={supportedAudioAccept} onChange={event => { const file = event.target.files?.[0]; if (file) void selectAudio(file); event.currentTarget.value = ''; }} />
+      </form> : <div className="import-options">
         <button className="import-option import-option-midi" type="button" onClick={() => midiInputRef.current?.click()}>
           <span className="import-option-icon"><FileMusic size={23} /></span><span className="import-option-copy"><strong>{t('import.midi')}</strong><small>{t('import.midiHint')}</small></span><ArrowRight className="import-option-arrow" size={18} />
         </button>
-        <button className="import-option import-option-audio" type="button" onClick={() => audioInputRef.current?.click()}>
+        <button className="import-option import-option-audio" type="button" onClick={() => { setAudioFormOpen(true); setError(null); }}>
           <span className="import-option-icon"><AudioLines size={23} /></span><span className="import-option-copy"><strong>{t('import.audio')}</strong><small>{t('import.audioHint')}</small></span><ArrowRight className="import-option-arrow" size={18} />
         </button>
         <input ref={midiInputRef} className="import-file-input" type="file" accept=".mid,.midi" onChange={event => { const file = event.target.files?.[0]; if (file) chooseMidi(file); event.currentTarget.value = ''; }} />
-        <input ref={audioInputRef} className="import-file-input" type="file" accept=".wav,.flac,.mp3,.ogg,.opus,.m4a,.aiff,.ac3,audio/*" onChange={event => { const file = event.target.files?.[0]; if (file) void chooseAudio(file); event.currentTarget.value = ''; }} />
       </div>}
       {error && <p className="import-error">{error}</p>}
     </div></div>, document.body)}
