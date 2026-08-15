@@ -1,7 +1,7 @@
 import { ArrowLeft, AudioLines, ListMusic, PanelRightClose, PanelRightOpen, Piano } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { createDemoNotes, createMusicalTimeline, type AudioSource, type BeatAnalysis, type Instrument, type LabelMode, type Note, type ViewMode } from '../../entities/music';
-import { MidiImportButton, type ImportedMidi, type MidiVariant } from '../../features/midi-import';
+import { type ImportedMidi, type MidiVariant } from '../../features/midi-import';
 import { PianoRoll } from '../../features/piano-roll';
 import { PlaybackControls, usePlayback } from '../../features/playback';
 import { JianpuView } from '../../features/score';
@@ -62,20 +62,6 @@ export function StudioPage({ initialMidi, onBack }: StudioPageProps) {
   }[playback.loadStatus];
   const resourcesReady = playback.loadStatus === 'ready';
 
-  const handleImport = (midi: ImportedMidi) => {
-    playback.reset();
-    setNotes(midi.notes);
-    setBpm(midi.bpm);
-    setKeySignature(midi.keySignature);
-    setGridDelay(midi.backgroundDelayMs);
-    setLoadedName(midi.name);
-    setInstrument('piano');
-    setInstruments({ piano: { audioUrl: null, midi: toMidiVariant(midi) } });
-    setAudioSource('midi');
-    setAudioUrls({ original: null, instrument: null });
-    setBeatAnalysis(null);
-  };
-
   const handleInstrumentChange = (nextInstrument: Instrument) => {
     const next = instruments[nextInstrument];
     if (!next || nextInstrument === instrument) return;
@@ -103,7 +89,7 @@ export function StudioPage({ initialMidi, onBack }: StudioPageProps) {
       {onBack ? <button className="brand brand-back" type="button" onClick={onBack} aria-label={t('studio.back')}><ArrowLeft size={17} /><span className="brand-symbol"><AudioLines size={18} /></span><span><strong>MuVisual</strong><small>{t('studio.tagline')}</small></span></button>
         : <div className="brand"><span className="brand-symbol"><AudioLines size={18} /></span><div><strong>MuVisual</strong><span>{t('studio.tagline')}</span></div></div>}
       <div className={`session timbre-status ${playback.loadStatus}`} role="status" aria-live="polite"><span className="status-dot" />{resourcesReady ? `${t('studio.timbre')} · ${loadStatusLabel}` : loadStatusLabel} <span className="divider" /><span className="loaded-name">{loadedName || t('studio.demoArrangement')}</span></div>
-      <div className="header-actions"><LanguageButton /><MidiImportButton onImport={handleImport} /></div>
+      <div className="header-actions"><LanguageButton /></div>
     </header>
     <section className={`workspace ${controlsCollapsed ? 'controls-collapsed' : ''}`}>
       <div className={`canvas-wrap ${viewMode === 'score' ? 'score-mode' : ''}`} onWheel={viewMode === 'roll' ? event => {
