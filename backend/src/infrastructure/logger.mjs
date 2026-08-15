@@ -42,7 +42,7 @@ function formatTimezone(date) {
 }
 
 function formatTimestamp(date) {
-  return `${formatLogDate(date)} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.${pad(date.getMilliseconds(), 3)} ${formatTimezone(date)}`;
+  return `${formatLogDate(date)} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())} ${formatTimezone(date)}`;
 }
 
 function formatEntry(level, module, message, fields, date) {
