@@ -214,21 +214,20 @@ export function usePlayback(
     setMediaDuration(buffers.reduce((maximum, buffer) => Math.max(maximum, buffer?.duration ?? 0), 0));
   }, [audioUrls.instrument, audioUrls.original, mediaLoadStatus]);
 
+  const scheduleMidiNotes = useCallback((timelineTime = getTimelineTime()) => {
+    const audioNow = getAudioTime();
+    const scheduleThrough = timelineTime + SCHEDULE_LOOKAHEAD_SECONDS;
+    while (nextNoteIndexRef.current < notesRef.current.length) {
+      const note = notesRef.current[nextNoteIndexRef.current];
+      if (note.start > scheduleThrough) break;
+      const noteTime = transportStartAudioTimeRef.current + note.start;
+      playNote(note.pitch, note.duration, Math.max(audioNow, noteTime));
+      nextNoteIndexRef.current += 1;
+    }
+  }, [getAudioTime, getTimelineTime, playNote]);
+
   useEffect(() => {
     if (!playing) return;
-
-    const schedule = () => {
-      const audioNow = getAudioTime();
-      const timelineNow = getTimelineTime();
-      const scheduleThrough = timelineNow + SCHEDULE_LOOKAHEAD_SECONDS;
-      while (nextNoteIndexRef.current < notesRef.current.length) {
-        const note = notesRef.current[nextNoteIndexRef.current];
-        if (note.start > scheduleThrough) break;
-        const noteTime = transportStartAudioTimeRef.current + note.start;
-        playNote(note.pitch, note.duration, Math.max(audioNow, noteTime));
-        nextNoteIndexRef.current += 1;
-      }
-    };
 
     const updatePosition = () => {
       const now = performance.now();
@@ -250,14 +249,14 @@ export function usePlayback(
       playbackRafRef.current = requestAnimationFrame(updatePosition);
     };
 
-    schedule();
-    const scheduleInterval = window.setInterval(schedule, SCHEDULE_INTERVAL_MS);
+    scheduleMidiNotes();
+    const scheduleInterval = window.setInterval(scheduleMidiNotes, SCHEDULE_INTERVAL_MS);
     playbackRafRef.current = requestAnimationFrame(updatePosition);
     return () => {
       window.clearInterval(scheduleInterval);
       cancelAnimationFrame(playbackRafRef.current!);
     };
-  }, [duration, getAudioTime, getTimelineTime, playNote, playing, stopAll, stopMedia]);
+  }, [duration, getTimelineTime, playing, scheduleMidiNotes, stopAll, stopMedia]);
 
   const pause = useCallback(() => {
     startRequestRef.current += 1;
@@ -279,9 +278,10 @@ export function usePlayback(
     transportStartAudioTimeRef.current = when - position;
     nextNoteIndexRef.current = findNoteIndex(notesRef.current, position);
     startMedia(when, position);
+    scheduleMidiNotes(position);
     lastElapsedCommitRef.current = performance.now();
     setPlaying(true);
-  }, [getAudioTime, startMedia]);
+  }, [getAudioTime, scheduleMidiNotes, startMedia]);
 
   const toggle = useCallback(async () => {
     if (playing) {

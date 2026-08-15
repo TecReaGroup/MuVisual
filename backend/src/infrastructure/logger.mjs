@@ -1,4 +1,5 @@
 import { appendFileSync, mkdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { paths } from '../config/paths.mjs';
 
 export function serializeError(error) {
@@ -17,27 +18,43 @@ export function serializeError(error) {
 }
 
 const levelLabels = {
-  debug: 'DBG',
-  error: 'ERR',
-  info: 'INF',
-  warn: 'WRN',
+  debug: 'DEBUG',
+  error: 'ERROR',
+  info: 'INFO',
+  warn: 'WARN',
 };
 
 let fileLoggingAvailable = true;
 
-try {
-  mkdirSync(paths.logRoot, { recursive: true });
-} catch (error) {
-  fileLoggingAvailable = false;
-  console.error(`Unable to create log directory ${paths.logRoot}:`, error);
+function pad(value, length = 2) {
+  return String(value).padStart(length, '0');
 }
 
-function pad(value) {
-  return String(value).padStart(2, '0');
+function formatLogDate(date) {
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+function formatTimezone(date) {
+  const offsetMinutes = -date.getTimezoneOffset();
+  const sign = offsetMinutes >= 0 ? '+' : '-';
+  const absoluteMinutes = Math.abs(offsetMinutes);
+  return `${sign}${pad(Math.floor(absoluteMinutes / 60))}:${pad(absoluteMinutes % 60)}`;
 }
 
 function formatTimestamp(date) {
-  return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  return `${formatLogDate(date)} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.${pad(date.getMilliseconds(), 3)} ${formatTimezone(date)}`;
+}
+
+function formatEntry(level, module, message, fields, date) {
+  const label = levelLabels[level] ?? String(level).toUpperCase();
+  return `[${formatTimestamp(date)}] [${label}] [${String(module)}] - ${message}${formatFields(fields)}`;
+}
+
+function writeConsole(level, entry) {
+  if (level === 'error') console.error(entry);
+  else if (level === 'warn') console.warn(entry);
+  else if (level === 'debug') console.debug(entry);
+  else console.log(entry);
 }
 
 function formatValue(value) {
@@ -76,20 +93,30 @@ function formatFields(fields) {
   return values.length > 0 ? ` ${values.join(', ')}` : '';
 }
 
+try {
+  mkdirSync(paths.logRoot, { recursive: true });
+} catch (error) {
+  fileLoggingAvailable = false;
+  writeConsole('error', formatEntry('error', 'Logger', '无法创建日志目录', {
+    path: paths.logRoot,
+    error: serializeError(error),
+  }, new Date()));
+}
+
 export function log(level, module, message, fields = {}) {
-  const label = levelLabels[level] ?? String(level).toUpperCase().slice(0, 3);
-  const source = String(module).slice(0, 12);
-  const entry = `[${formatTimestamp(new Date())}] [${label}] [${source}] - ${message}${formatFields(fields)}`;
-  if (level === 'error') console.error(entry);
-  else if (level === 'warn') console.warn(entry);
-  else if (level === 'debug') console.debug(entry);
-  else console.log(entry);
+  const date = new Date();
+  const entry = formatEntry(level, module, message, fields, date);
+  writeConsole(level, entry);
 
   if (!fileLoggingAvailable) return;
+  const logFile = join(paths.logRoot, `log_${formatLogDate(date)}.log`);
   try {
-    appendFileSync(paths.logFile, `${entry}\n`, 'utf8');
+    appendFileSync(logFile, `${entry}\n`, 'utf8');
   } catch (error) {
     fileLoggingAvailable = false;
-    console.error(`Unable to write log file ${paths.logFile}:`, error);
+    writeConsole('error', formatEntry('error', 'Logger', '无法写入日志文件', {
+      path: logFile,
+      error: serializeError(error),
+    }, new Date()));
   }
 }
