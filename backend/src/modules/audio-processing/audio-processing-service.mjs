@@ -13,6 +13,7 @@ const pollIntervalMs = 5_000;
 const processingTimeoutMs = 20 * 60 * 1000;
 const retryableStatuses = new Set([408, 425, 429, 500, 502, 503, 504]);
 const activeStatuses = new Set(['queued', 'processing', 'extracting']);
+const persistedStatuses = new Set([...activeStatuses, 'submitting', 'downloading', 'completed', 'failed']);
 const jobs = new Map();
 let initialization;
 let processingQueue = Promise.resolve();
@@ -20,6 +21,13 @@ let queuedCount = 0;
 
 const jobsRoot = join(paths.modalRoot, '.jobs');
 const uploadsRoot = join(paths.modalRoot, '.uploads');
+
+async function ensureWorkingDirectories() {
+  await Promise.all([
+    mkdir(jobsRoot, { recursive: true }),
+    mkdir(uploadsRoot, { recursive: true }),
+  ]);
+}
 
 function normalizeArchiveEntry(entryName) {
   return entryName.replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/$/, '');
@@ -50,7 +58,14 @@ function inspectArchive(zip) {
       detail: [...topLevelFolders],
     });
   }
-  return [...topLevelFolders][0];
+  const folderName = [...topLevelFolders][0];
+  if (folderName.startsWith('.')) {
+    throw Object.assign(new Error('Modal ZIP track folder must be a visible directory'), {
+      code: 'RESULT_ZIP_INVALID_LAYOUT',
+      detail: [folderName],
+    });
+  }
+  return folderName;
 }
 
 function discardMacMetadata(zip) {
@@ -75,11 +90,23 @@ function jobFilePath(jobId) {
 }
 
 async function persistJob(job) {
-  await mkdir(jobsRoot, { recursive: true });
+  await ensureWorkingDirectories();
   const destination = jobFilePath(job.id);
   const temporary = `${destination}.${randomUUID()}.tmp`;
-  await writeFile(temporary, JSON.stringify(job));
-  await rename(temporary, destination);
+  try {
+    await writeFile(temporary, JSON.stringify(job));
+    await rename(temporary, destination);
+  } catch (error) {
+    await rm(temporary, { force: true });
+    throw error;
+  }
+}
+
+async function removeStagedFiles(job) {
+  await Promise.allSettled([
+    rm(job.inputPath, { force: true }),
+    rm(job.zipPath, { force: true }),
+  ]);
 }
 
 async function updateJob(job, fields) {
@@ -129,15 +156,20 @@ function enqueue(job) {
         durationMs: Date.now() - startedAt,
       });
     } catch (error) {
-      await updateJob(job, {
-        status: 'failed',
-        error: error.message || 'Audio processing failed',
-        errorCode: error.code ?? 'AUDIO_PROCESSING_FAILED',
-      });
-      await Promise.allSettled([
-        rm(job.inputPath, { force: true }),
-        rm(job.zipPath, { force: true }),
-      ]);
+      try {
+        await updateJob(job, {
+          status: 'failed',
+          error: error.message || 'Audio processing failed',
+          errorCode: error.code ?? 'AUDIO_PROCESSING_FAILED',
+        });
+      } catch (persistenceError) {
+        log('error', 'AudioQueue', '无法保存音频任务失败状态', {
+          requestId: job.requestId,
+          jobId: job.id,
+          error: serializeError(persistenceError),
+        });
+      }
+      await removeStagedFiles(job);
       log('error', 'AudioQueue', '音频任务处理失败', {
         requestId: job.requestId,
         jobId: job.id,
@@ -155,23 +187,38 @@ function enqueue(job) {
 }
 
 async function initializeJobs() {
-  await Promise.all([
-    mkdir(paths.modalRoot, { recursive: true }),
-    mkdir(jobsRoot, { recursive: true }),
-    mkdir(uploadsRoot, { recursive: true }),
-  ]);
+  await ensureWorkingDirectories();
   const entries = await readdir(jobsRoot, { withFileTypes: true });
   const restoredJobs = [];
-  for (const entry of entries.filter(item => item.isFile() && item.name.endsWith('.json'))) {
+  for (const entry of entries) {
+    const storedJobPath = join(jobsRoot, entry.name);
+    if (!entry.isFile()) {
+      await rm(storedJobPath, { recursive: true, force: true });
+      continue;
+    }
+    if (entry.name.endsWith('.tmp')) {
+      await rm(storedJobPath, { force: true });
+      continue;
+    }
+    if (!entry.name.endsWith('.json')) {
+      await rm(storedJobPath, { force: true });
+      continue;
+    }
     try {
-      const job = JSON.parse(await readFile(join(jobsRoot, entry.name), 'utf8'));
-      if (!job?.id || !job?.status) continue;
+      const job = JSON.parse(await readFile(storedJobPath, 'utf8'));
+      if (!job?.id || !persistedStatuses.has(job.status) || entry.name !== `${job.id}.json`) {
+        await rm(storedJobPath, { force: true });
+        continue;
+      }
+      job.inputPath = join(uploadsRoot, `${job.id}.upload`);
+      job.zipPath = join(uploadsRoot, `${job.id}.zip`);
       jobs.set(job.id, job);
-      if (job.status === 'submitting' && !job.modalCallId) {
+      if (job.status === 'submitting') {
         await updateJob(job, {
           status: 'failed',
           error: 'Node restarted while submitting the audio; the upload will not be sent twice',
         });
+        await removeStagedFiles(job);
         continue;
       }
       if (job.status === 'downloading') {
@@ -180,24 +227,40 @@ async function initializeJobs() {
           error: 'Node restarted while downloading the processed ZIP; the completed download will not be requested twice',
           errorCode: 'RESULT_DOWNLOAD_INTERRUPTED',
         });
-        await rm(job.zipPath, { force: true });
+        await removeStagedFiles(job);
         continue;
       }
       if (activeStatuses.has(job.status)) restoredJobs.push(job);
+      else await removeStagedFiles(job);
     } catch (error) {
       log('warn', 'AudioQueue', '无法恢复音频任务', { filename: entry.name, error: serializeError(error) });
+      await rm(storedJobPath, { force: true });
     }
   }
+
+  const retainedUploadNames = new Set(restoredJobs.flatMap(job => [
+    `${job.id}.upload`,
+    `${job.id}.zip`,
+  ]));
+  const uploadEntries = await readdir(uploadsRoot, { withFileTypes: true });
+  await Promise.allSettled(uploadEntries
+    .filter(entry => !entry.isFile() || !retainedUploadNames.has(entry.name))
+    .map(entry => rm(join(uploadsRoot, entry.name), { recursive: true, force: true })));
+
   restoredJobs.sort((first, second) => Date.parse(first.createdAt) - Date.parse(second.createdAt));
   for (const job of restoredJobs) {
     if (await fileExists(job.inputPath) || await fileExists(job.zipPath)) enqueue(job);
-    else await updateJob(job, { status: 'failed', error: 'Staged upload was lost before processing completed' });
+    else {
+      await updateJob(job, { status: 'failed', error: 'Staged upload was lost before processing completed' });
+      await removeStagedFiles(job);
+    }
   }
 }
 
 async function ensureInitialized() {
   initialization ??= initializeJobs();
-  return initialization;
+  await initialization;
+  await ensureWorkingDirectories();
 }
 
 async function stageUpload(upload, requestId) {
@@ -205,7 +268,6 @@ async function stageUpload(upload, requestId) {
   const id = randomUUID();
   const inputPath = join(uploadsRoot, `${id}.upload`);
   const now = new Date().toISOString();
-  await writeFile(inputPath, upload.data);
   const job = {
     id,
     requestId,
@@ -217,8 +279,14 @@ async function stageUpload(upload, requestId) {
     createdAt: now,
     updatedAt: now,
   };
-  jobs.set(id, job);
-  await persistJob(job);
+  try {
+    await writeFile(inputPath, upload.data);
+    await persistJob(job);
+    jobs.set(id, job);
+  } catch (error) {
+    await removeStagedFiles(job);
+    throw error;
+  }
   log('info', 'AudioUpload', '上传文件已暂存', { requestId, jobId: id, filename: upload.filename, size: upload.data.length });
   return job;
 }
@@ -314,6 +382,7 @@ async function waitForModalResult(job) {
     if (!response.body) throw new Error('Modal returned an empty ZIP response');
     const contentType = response.headers.get('content-type') ?? '';
     await updateJob(job, { status: 'downloading', resultContentType: contentType || null });
+    await ensureWorkingDirectories();
     await rm(job.zipPath, { force: true });
     try {
       await pipeline(Readable.fromWeb(response.body), createWriteStream(job.zipPath));
@@ -329,7 +398,6 @@ async function waitForModalResult(job) {
 }
 
 async function extractModalResult(job) {
-  const resumedExtraction = job.status === 'extracting';
   let zip;
   let folderName;
   try {
@@ -344,22 +412,14 @@ async function extractModalResult(job) {
   }
 
   const destinationFolder = join(paths.modalRoot, folderName);
-  if (resumedExtraction && job.folderName === folderName) {
-    await rm(destinationFolder, { recursive: true, force: true });
-  }
-
   await updateJob(job, { status: 'extracting', folderName });
   let destinationClaimed = false;
   try {
-    try {
-      await mkdir(destinationFolder);
-      destinationClaimed = true;
-    } catch (error) {
-      if (error?.code !== 'EEXIST') throw error;
-      throw Object.assign(new Error(`A track folder named "${folderName}" already exists`), {
-        code: 'TRACK_FOLDER_ALREADY_EXISTS',
-      });
-    }
+    // Upload results are replacements: remove the complete previous track so
+    // stale files from an older archive cannot remain in the library.
+    await rm(destinationFolder, { recursive: true, force: true });
+    await mkdir(destinationFolder);
+    destinationClaimed = true;
 
     discardMacMetadata(zip);
     await zip.extractAllToAsync(paths.modalRoot, false, false);
@@ -390,10 +450,7 @@ async function processJob(job) {
     await extractModalResult(job);
   } finally {
     if (job.status === 'completed') {
-      await Promise.allSettled([
-        rm(job.inputPath, { force: true }),
-        rm(job.zipPath, { force: true }),
-      ]);
+      await removeStagedFiles(job);
     }
   }
 }
