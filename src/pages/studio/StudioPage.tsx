@@ -104,13 +104,14 @@ export function StudioPage({ initialMidi, onBack }: StudioPageProps) {
           ? <PianoRoll duration={playback.duration} getElapsed={playback.getElapsed} keySignature={keySignature} labelMode={labelMode} notes={notes} timeline={timeline} onSeek={playback.seek} />
           : <JianpuView bpm={bpm} notes={notes} getElapsed={playback.getElapsed} keySignature={keySignature} timeline={timeline} metadata={initialMidi?.metadata} />}
         <div className="canvas-label">
-          <span className="current-chord" aria-live="polite">{chordName || '-'}</span>
+          <span>{t(viewMode === 'roll' ? 'studio.liveVisualizer' : 'studio.numberedNotation')}</span>
           <div className="view-switch" role="group" aria-label={t('studio.viewSettings')}>
             <button className={viewMode === 'roll' ? 'selected' : ''} onClick={() => setViewMode('roll')} aria-label={t('studio.pianoRollView')} title={t('studio.pianoRollView')}><Piano size={15} /></button>
             <button className={viewMode === 'score' ? 'selected' : ''} onClick={() => setViewMode('score')} aria-label={t('studio.scoreView')} title={t('studio.scoreView')}><ListMusic size={15} /></button>
             <button onClick={() => setControlsCollapsed(value => !value)} aria-label={t(controlsCollapsed ? 'studio.openSettings' : 'studio.closeSettings')} title={t(controlsCollapsed ? 'studio.openSettings' : 'studio.closeSettings')}>{controlsCollapsed ? <PanelRightOpen size={15} /> : <PanelRightClose size={15} />}</button>
           </div>
         </div>
+        {viewMode === 'roll' && <div className={`chord-display ${chordName ? 'visible' : ''}`} aria-live="polite">{chordName}</div>}
       </div>
       <aside className={`controls ${controlsCollapsed ? 'collapsed' : ''}`}>
         <PlaybackControls

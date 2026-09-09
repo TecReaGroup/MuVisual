@@ -11,7 +11,8 @@
 .topbar .upload { color:#ffb0a8; border-color:#3b3032; border-radius:0; background:#151922; }
 .topbar .upload:hover { border-color:#ff6b5f; background:#191e28; }
 .topbar .upload:focus-visible { outline:2px solid #ffab57; outline-offset:3px; }
-.canvas-label > .current-chord { color:#ff8b80; font:600 26px 'Space Grotesk'; letter-spacing:0; }
+.chord-display { position:absolute; z-index:2; top:42px; left:50%; min-width:120px; text-align:center; color:#fff; font:600 30px 'Space Grotesk'; letter-spacing:0; opacity:0; transform:translate(-50%, -6px); text-shadow:0 0 18px rgba(255,107,95,.65); transition:opacity 240ms ease, transform 240ms ease; pointer-events:none; }
+.chord-display.visible { opacity:1; transform:translate(-50%, 0); }
 .progress-control { margin:-8px 0 24px; }
 .progress-control input[type=range] { margin:0; width:100%; accent-color:#ff6b5f; }
 .progress-control > div { display:flex; justify-content:space-between; margin-top:7px; color:#69717e; font:10px 'DM Mono'; }
@@ -69,6 +70,7 @@ footer { flex:0 0 40px; }
   .delay-control button, .tempo-control .step-actions button { min-height:28px; margin-top:7px; }
   .legend { display:none; }
 }
+@media (prefers-reduced-motion: reduce) { .chord-display { transition:none; } }
 @media (max-width: 720px) {
   .topbar { position:relative; flex-basis:64px; padding:0 16px; height:64px; }
   .topbar .timbre-status { position:absolute; left:50%; display:block; max-width:112px; overflow:hidden; transform:translateX(-50%); font-size:9px; text-overflow:ellipsis; white-space:nowrap; }
@@ -77,7 +79,7 @@ footer { flex:0 0 40px; }
   .topbar .upload svg { width:18px; height:18px; }
   .workspace { grid-template-columns:1fr; grid-template-rows:minmax(450px,1fr) auto; overflow-y:auto; overscroll-behavior-y:contain; }
   .canvas-wrap { min-height:470px; }
-  .canvas-label > .current-chord { font-size:22px; }
+  .chord-display { top:38px; font-size:24px; }
   .controls { width:100%; min-height:max-content; overflow:visible; border-left:0; border-top:1px solid #20232c; padding:22px max(16px, env(safe-area-inset-right)) calc(24px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
   .controls-header { margin-bottom:14px; }
   .progress-control { margin:0 0 20px; }
