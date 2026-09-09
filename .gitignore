@@ -33,11 +33,11 @@ test-results/
 Thumbs.db
 Desktop.ini
 
-/backend/data/modal/*
-!/backend/data/modal/.gitkeep
-/backend/data/visual/*
-!/backend/data/visual/.gitkeep
-backend/data/log/*
+/backend/data/preset/*
+!/backend/data/preset/.gitkeep
+/backend/data/upload/*
+!/backend/data/upload/.gitkeep
+/backend/data/log/*
 !backend/data/log/.gitkeep
 
 *.mid

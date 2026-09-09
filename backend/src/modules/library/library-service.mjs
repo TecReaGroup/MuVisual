@@ -26,7 +26,7 @@ async function resolveLibraryEntry(id) {
   if (separator !== -1) {
     const source = decoded.slice(0, separator);
     const folderName = decoded.slice(separator + 1);
-    const root = source === 'preset' ? paths.visualRoot : source === 'upload' ? paths.modalRoot : null;
+    const root = source === 'preset' ? paths.presetRoot : source === 'upload' ? paths.uploadRoot : null;
     if (!root) return null;
     try {
       const entry = await stat(join(root, folderName));
@@ -38,7 +38,7 @@ async function resolveLibraryEntry(id) {
   }
 
   const folderName = decoded;
-  for (const root of [paths.modalRoot, paths.visualRoot]) {
+  for (const root of [paths.uploadRoot, paths.presetRoot]) {
     try {
       const entry = await stat(join(root, folderName));
       if (entry.isDirectory()) return { folderName, root };
@@ -51,7 +51,7 @@ async function resolveLibraryEntry(id) {
 
 export async function readLibrary() {
   const libraryFolders = [];
-  for (const [source, root] of [['preset', paths.visualRoot], ['upload', paths.modalRoot]]) {
+  for (const [source, root] of [['preset', paths.presetRoot], ['upload', paths.uploadRoot]]) {
     let entries = [];
     try {
       entries = await readdir(root, { withFileTypes: true });
