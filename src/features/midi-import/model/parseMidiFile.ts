@@ -24,6 +24,7 @@ export async function parseMidiFile(file: File): Promise<ImportedMidi | null> {
   const ppq = midi.header.ppq;
   const notes = noteTracks.flatMap(track => track.notes.map(note => ({
     pitch: note.midi,
+    velocity: Math.round(note.velocity * 127),
     start: note.time,
     duration: note.duration,
     beat: note.ticks / ppq,

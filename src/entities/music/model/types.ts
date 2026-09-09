@@ -2,6 +2,8 @@ export type Hand = 'left' | 'right';
 
 export type Note = {
   pitch: number;
+  /** MIDI note-on velocity, in the 0-127 range. */
+  velocity: number;
   start: number;
   duration: number;
   beat: number;

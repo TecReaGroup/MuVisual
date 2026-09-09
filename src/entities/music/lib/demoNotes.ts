@@ -9,6 +9,7 @@ export function createDemoNotes(): Note[] {
     const time = 1 + index * 2;
     chord.forEach((pitch, chordIndex) => notes.push({
       pitch,
+      velocity: 72,
       start: time + chordIndex * 0.05,
       duration: 1.8,
       beat: (time + chordIndex * 0.05) * 92 / 60,
@@ -17,6 +18,7 @@ export function createDemoNotes(): Note[] {
     }));
     [chord[3] + 12, chord[2] + 12, chord[3] + 12, chord[1] + 12].forEach((pitch, chordIndex) => notes.push({
       pitch,
+      velocity: 72,
       start: time + chordIndex * 0.5,
       duration: 0.38,
       beat: (time + chordIndex * 0.5) * 92 / 60,

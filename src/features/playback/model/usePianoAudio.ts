@@ -1,14 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { Instrument } from '../../../entities/music/model/types';
+import type { Instrument, Note } from '../../../entities/music/model/types';
 import { createTimbreLibrary, type TimbreLibrary } from './timbreLibrary';
 
 type LoadStatus = 'loading' | 'ready' | 'error';
-const DEFAULT_MIDI_VELOCITY = 72;
 
 const sharedAudio: {
   context?: AudioContext;
   muteGain?: GainNode;
-  output?: GainNode;
   volumeGain?: GainNode;
   library?: TimbreLibrary;
 } = {};
@@ -18,18 +16,19 @@ function getSharedAudioContext() {
 
   const context = new AudioContext();
   const output = context.createGain();
+  // Fixed headroom preserves dynamics regardless of scheduled notes and quiet tails.
+  output.gain.value = 10 ** (-6 / 20);
   const volumeGain = context.createGain();
   const muteGain = context.createGain();
   const compressor = context.createDynamicsCompressor();
-  compressor.threshold.value = -10;
-  compressor.knee.value = 24;
-  compressor.ratio.value = 4;
-  compressor.attack.value = 0.008;
-  compressor.release.value = 0.2;
+  compressor.threshold.value = -3;
+  compressor.knee.value = 3;
+  compressor.ratio.value = 20;
+  compressor.attack.value = 0.001;
+  compressor.release.value = 0.1;
   output.connect(compressor).connect(volumeGain).connect(muteGain).connect(context.destination);
   sharedAudio.context = context;
   sharedAudio.muteGain = muteGain;
-  sharedAudio.output = output;
   sharedAudio.volumeGain = volumeGain;
   sharedAudio.library = createTimbreLibrary(context, output);
   return context;
@@ -38,7 +37,6 @@ function getSharedAudioContext() {
 export function usePianoAudio(muted: boolean, volume: number, instrument: Instrument = 'piano') {
   const [loadState, setLoadState] = useState<{ instrument: Instrument; status: LoadStatus }>({ instrument, status: 'loading' });
   const selectionRequestRef = useRef(0);
-  const activeVoicesRef = useRef(0);
   const activeStopsRef = useRef(new Set<() => void>());
   const loadStatus = sharedAudio.library?.get(instrument) ? 'ready'
     : loadState.instrument === instrument ? loadState.status : 'loading';
@@ -71,13 +69,6 @@ export function usePianoAudio(muted: boolean, volume: number, instrument: Instru
     return () => { selectionRequestRef.current += 1; };
   }, [loadTimbre]);
 
-  const updateHeadroom = useCallback((context: AudioContext) => {
-    const voiceCount = Math.max(1, activeVoicesRef.current);
-    const targetGain = Math.max(0.22, 1 / Math.sqrt(voiceCount));
-    sharedAudio.output!.gain.cancelScheduledValues(context.currentTime);
-    sharedAudio.output!.gain.setTargetAtTime(targetGain, context.currentTime, 0.006);
-  }, []);
-
   useEffect(() => {
     const context = getAudioContext();
     sharedAudio.volumeGain!.gain.cancelScheduledValues(context.currentTime);
@@ -90,27 +81,23 @@ export function usePianoAudio(muted: boolean, volume: number, instrument: Instru
     sharedAudio.muteGain!.gain.setTargetAtTime(muted ? 0 : 1, context.currentTime, 0.008);
   }, [getAudioContext, muted]);
 
-  const playNote = useCallback((pitch: number, length: number, startTime?: number) => {
+  const playNote = useCallback((note: Note, startTime: number) => {
     const context = getAudioContext();
     const definition = sharedAudio.library!.get(instrument);
     if (!definition) return;
-    activeVoicesRef.current += 1;
-    updateHeadroom(context);
     let ended = false;
     let stopNote: () => void = () => undefined;
     const cleanup = () => {
       if (ended) return;
       ended = true;
       activeStopsRef.current.delete(stopNote);
-      activeVoicesRef.current -= 1;
-      updateHeadroom(context);
     };
     try {
       const stop = definition.start({
-        note: pitch,
-        time: Math.max(context.currentTime, startTime ?? context.currentTime),
-        duration: Math.max(0.01, length),
-        velocity: DEFAULT_MIDI_VELOCITY,
+        note: note.pitch,
+        time: Math.max(context.currentTime, startTime),
+        duration: Math.max(0.01, note.duration),
+        velocity: note.velocity,
         onEnded: cleanup,
       });
       stopNote = () => {
@@ -123,7 +110,7 @@ export function usePianoAudio(muted: boolean, volume: number, instrument: Instru
       cleanup();
       throw error;
     }
-  }, [getAudioContext, instrument, updateHeadroom]);
+  }, [getAudioContext, instrument]);
 
   const stopAll = useCallback(() => {
     activeStopsRef.current.forEach(stop => stop());

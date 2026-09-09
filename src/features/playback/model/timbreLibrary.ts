@@ -14,6 +14,15 @@ type TimbreSource = typeof TIMBRE_SOURCES[Instrument];
 type TimbreStart = { note: number; time: number; duration: number; velocity: number; onEnded: () => void };
 type TimbreDefinition = { start: (note: TimbreStart) => (time?: number) => void };
 
+// Source trims are independent of note velocity and the user's master volume.
+const TIMBRE_TRIM_DB = {
+  acoustic_grand_piano: 0,
+  electric_bass_finger: 4.5,
+  electric_guitar_clean: 0,
+  string_ensemble_1: -2,
+  'TR-808': 0,
+} as const satisfies Record<TimbreSource, number>;
+
 // GM percussion 35-81. Missing TR-808 voices use the closest available family.
 const GM_DRUM_SAMPLES = [
   'kick', 'kick', 'rimshot', 'snare', 'clap', 'snare',
@@ -25,6 +34,16 @@ const GM_DRUM_SAMPLES = [
   'clave', 'clave', 'maraca', 'maraca', 'clave', 'clave', 'clave',
   'conga-hi', 'conga-low', 'cowbell', 'cowbell',
 ] as const;
+
+const DRUM_FAMILY_TRIM_DB = {
+  kick: 0, snare: 0, rimshot: -3, clap: -3,
+  'tom-low': -2, 'mid-tom': -2, 'tom-hi': -2,
+  'hihat-close': -6, 'hihat-open': -5, cymbal: -6,
+  cowbell: -5, clave: -6, maraca: -6, 'conga-hi': -3, 'conga-low': -3,
+} as const satisfies Record<typeof GM_DRUM_SAMPLES[number], number>;
+
+// Pedal hi-hat and ride need distinct levels even when they share an 808 sample.
+const DRUM_NOTE_TRIM_DB: Partial<Record<number, number>> = { 44: -8, 51: -5, 59: -5 };
 
 async function validateSampleResponse(response: Response, url: string) {
   if (!response.ok) throw new Error(`Timbre request failed (${response.status}): ${url}`);
@@ -122,8 +141,11 @@ export function createTimbreLibrary(context: AudioContext, destination: AudioNod
             hit.onEnded();
             return () => undefined;
           }
-          // Percussion plays its natural tail; transport stop still cancels the hit.
-          return drums.start({ ...hit, note: sample });
+          // Choke at the scheduled hit time, not when the lookahead queues it.
+          if (note === 42 || note === 44) drums.stop({ stopId: 'hihat-open', time: hit.time });
+          const trimDb = TIMBRE_TRIM_DB[source] + (DRUM_NOTE_TRIM_DB[note] ?? DRUM_FAMILY_TRIM_DB[sample]);
+          // Other percussion keeps its natural tail until transport stop.
+          return drums.start({ ...hit, note: sample, gainOffset: 10 ** (trimDb / 20) });
         },
       };
     }
@@ -138,7 +160,8 @@ export function createTimbreLibrary(context: AudioContext, destination: AudioNod
       soundfont.disconnect();
       throw error;
     }
-    return { start: note => soundfont.start(note) };
+    const gainOffset = 10 ** (TIMBRE_TRIM_DB[source] / 20);
+    return { start: note => soundfont.start({ ...note, gainOffset }) };
   }
 
   return {

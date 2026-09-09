@@ -179,7 +179,7 @@ export function usePlayback(
       const note = notesRef.current[nextNoteIndexRef.current];
       if (note.start > scheduleThrough) break;
       const noteTime = transportStartAudioTimeRef.current + note.start;
-      playNote(note.pitch, note.duration, Math.max(audioNow, noteTime));
+      playNote(note, Math.max(audioNow, noteTime));
       nextNoteIndexRef.current += 1;
     }
   }, [getAudioTime, getTimelineTime, playNote]);
