@@ -1,7 +1,7 @@
 import { memo, useEffect, useMemo, useRef } from 'react';
 import { numberForPitch } from '../../../entities/music/lib/pitch';
 import type { MusicalTimeline } from '../../../entities/music/lib/musicalTimeline';
-import type { Note } from '../../../entities/music/model/types';
+import type { Note, SongMetadata } from '../../../entities/music/model/types';
 import { useI18n } from '../../../shared/i18n';
 
 type Voice = 'high' | 'low';
@@ -65,19 +65,45 @@ type JianpuViewProps = {
   bpm: number;
   getElapsed: () => number;
   keySignature: string;
+  metadata?: SongMetadata | null;
   notes: Note[];
   timeline: MusicalTimeline;
 };
 
-export const JianpuView = memo(function JianpuView({ bpm, getElapsed, notes, keySignature, timeline }: JianpuViewProps) {
+export const JianpuView = memo(function JianpuView({ bpm, getElapsed, notes, keySignature, metadata, timeline }: JianpuViewProps) {
   const { t } = useI18n();
   const scrollRef = useRef<HTMLDivElement>(null);
   const systemRefs = useRef<Array<HTMLElement | null>>([]);
   const rowRefs = useRef<Array<HTMLDivElement | null>>([]);
   const cursorRefs = useRef<Array<HTMLSpanElement | null>>([]);
   const quantized = useMemo(() => quantizeNotes(notes, timeline), [notes, timeline]);
-  const lastBeat = Math.max(0, ...notes.map(note => timeline.positionAt(note.start)));
-  const totalMeasures = Math.max(1, Math.ceil((lastBeat + 2) / 4));
+  const beatsPerMeasure = metadata?.beatsPerMeasure ?? 4;
+  const chords = useMemo(() => (metadata?.chords ?? [])
+    .map(chord => ({ beat: timeline.positionAt(chord.time), chord: chord.chord }))
+    .sort((first, second) => first.beat - second.beat), [metadata?.chords, timeline]);
+  const lastBeat = Math.max(0, ...notes.map(note => timeline.positionAt(note.start)), ...chords.map(chord => chord.beat));
+  const totalMeasures = Math.max(1, Math.ceil((lastBeat + 2) / beatsPerMeasure));
+  const measureChords = useMemo(() => {
+    let chordIndex = 0;
+    let activeChord = 'N';
+    return Array.from({ length: totalMeasures }, (_, measure) => {
+      const startBeat = measure * beatsPerMeasure;
+      const endBeat = startBeat + beatsPerMeasure;
+      const changes: Array<{ beat: number; chord: string }> = [];
+      // Consume boundary events before carrying the chord, including clears at the bar line.
+      while (chordIndex < chords.length && chords[chordIndex].beat <= startBeat) {
+        activeChord = chords[chordIndex++].chord;
+      }
+      if (activeChord !== 'N') changes.push({ beat: 0, chord: activeChord });
+      while (chordIndex < chords.length && chords[chordIndex].beat < endBeat) {
+        const change = chords[chordIndex++];
+        if (change.chord === activeChord) continue;
+        activeChord = change.chord;
+        if (activeChord !== 'N') changes.push({ beat: change.beat - startBeat, chord: activeChord });
+      }
+      return changes;
+    });
+  }, [beatsPerMeasure, chords, totalMeasures]);
   const systems = useMemo(() => Array.from({ length: Math.ceil(totalMeasures / 2) }, (_, system) =>
     [system * 2, system * 2 + 1].filter(measure => measure < totalMeasures)), [totalMeasures]);
 
@@ -96,7 +122,7 @@ export const JianpuView = memo(function JianpuView({ bpm, getElapsed, notes, key
 
     const drawCursor = () => {
       const currentBeat = Math.max(0, timeline.positionAt(getElapsed()));
-      const nextSystemIndex = Math.max(0, Math.min(systems.length - 1, Math.floor(currentBeat / 8)));
+      const nextSystemIndex = Math.max(0, Math.min(systems.length - 1, Math.floor(currentBeat / (beatsPerMeasure * 2))));
 
       if (nextSystemIndex !== activeSystemIndex) {
         if (activeSystemIndex >= 0) {
@@ -112,8 +138,8 @@ export const JianpuView = memo(function JianpuView({ bpm, getElapsed, notes, key
       const system = systems[activeSystemIndex];
       const cursor = cursorRefs.current[activeSystemIndex];
       if (system && cursor) {
-        const systemStartBeat = system[0] * 4;
-        const systemBeats = system.length * 4;
+        const systemStartBeat = system[0] * beatsPerMeasure;
+        const systemBeats = system.length * beatsPerMeasure;
         const cursorPosition = Math.max(0, Math.min(1, (currentBeat - systemStartBeat) / systemBeats));
         const cursorX = cursorPosition * systemWidths[activeSystemIndex] - 1;
         if (cursorX !== lastCursorX) {
@@ -129,13 +155,13 @@ export const JianpuView = memo(function JianpuView({ bpm, getElapsed, notes, key
       cancelAnimationFrame(animationFrame);
       resizeObserver.disconnect();
     };
-  }, [getElapsed, systems, timeline]);
+  }, [beatsPerMeasure, getElapsed, systems, timeline]);
 
   return <div className="score-stage" ref={scrollRef} data-tempo={bpm}>
     <div className="score-sheet">
       <div className="score-heading">
         <div><span>{t('score.title')}</span><strong>1 = {keySignature.replace(':', ' · ')}</strong></div>
-        <div className="score-meta">{t('score.meta')}</div>
+        <div className="score-meta">{metadata?.timeSignature ?? '4/4'} · {t('score.meta')}</div>
       </div>
       {systems.map((system, systemIndex) => {
         return <section
@@ -147,9 +173,16 @@ export const JianpuView = memo(function JianpuView({ bpm, getElapsed, notes, key
           <div className="staff-labels"><span>{t('score.high')}</span><span>{t('score.low')}</span></div>
           <div className="score-rows" ref={element => { rowRefs.current[systemIndex] = element; }}>
             {(['high', 'low'] as const).map(voice => <div className="score-row" key={voice}>
-              {system.map(measure => <div className="score-measure" key={measure}>
+              {system.map(measure => <div className="score-measure" key={measure} style={{ gridTemplateColumns: `repeat(${beatsPerMeasure}, minmax(0, 1fr))` }}>
                 <span className="measure-number">{String(measure + 1).padStart(2, '0')}</span>
-                {Array.from({ length: 4 }, (_, beat) => <Beat key={beat} beat={measure * 4 + beat} voice={voice} notes={quantized} keySignature={keySignature} />)}
+                {chords.length > 0 && <div className="score-chords" aria-hidden={voice === 'low'}>
+                  {voice === 'high' && measureChords[measure].map((change, index) => <span
+                    className="score-chord"
+                    key={index}
+                    style={{ gridColumn: Math.floor(change.beat) + 1, left: `calc(${(change.beat % 1) * 100}% + ${(change.beat % 1) * 8}px)` }}
+                  >{change.chord}</span>)}
+                </div>}
+                {Array.from({ length: beatsPerMeasure }, (_, beat) => <Beat key={beat} beat={measure * beatsPerMeasure + beat} voice={voice} notes={quantized} keySignature={keySignature} />)}
               </div>)}
             </div>)}
             <span className="score-cursor" ref={element => { cursorRefs.current[systemIndex] = element; }} aria-hidden="true" />

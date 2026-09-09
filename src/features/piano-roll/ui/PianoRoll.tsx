@@ -3,7 +3,6 @@ import { END_MIDI, isWhitePitch, numberForPitch, PITCH_NAMES, START_MIDI } from 
 import type { MusicalTimeline } from '../../../entities/music/lib/musicalTimeline';
 import type { LabelMode, Note } from '../../../entities/music/model/types';
 import { useI18n } from '../../../shared/i18n';
-import { recognizeChord } from '../model/recognizeChord';
 
 const DRAW_FRAME_INTERVAL_MS = 1000 / 120;
 
@@ -16,7 +15,6 @@ type PianoRollProps = {
   labelMode: LabelMode;
   notes: Note[];
   timeline: MusicalTimeline;
-  onChordChange: (chord: string | null) => void;
   onSeek: (time: number) => void;
 };
 
@@ -43,7 +41,6 @@ export const PianoRoll = memo(function PianoRoll({
   labelMode,
   notes,
   timeline,
-  onChordChange,
   onSeek,
 }: PianoRollProps) {
   const { t } = useI18n();
@@ -55,7 +52,6 @@ export const PianoRoll = memo(function PianoRoll({
     [sortedNotes],
   );
   const notesRef = useRef(sortedNotes);
-  const chordRef = useRef<string | null>(null);
   notesRef.current = sortedNotes;
 
   useEffect(() => {
@@ -63,8 +59,6 @@ export const PianoRoll = memo(function PianoRoll({
     if (!canvas) return;
     const context = canvas.getContext('2d');
     if (!context) return;
-    chordRef.current = null;
-    onChordChange(null);
 
     let width = 0;
     let height = 0;
@@ -72,7 +66,6 @@ export const PianoRoll = memo(function PianoRoll({
     let whiteKeys: Array<[number, PianoKey]> = [];
     let blackKeys: Array<[number, PianoKey]> = [];
     let needsRedraw = true;
-    let activePitchSignature = '';
 
     const resize = () => {
       width = canvas.clientWidth;
@@ -192,16 +185,6 @@ export const PianoRoll = memo(function PianoRoll({
         }
       }
 
-      const nextActivePitchSignature = [...activePitches].sort((first, second) => first - second).join(',');
-      if (nextActivePitchSignature !== activePitchSignature) {
-        activePitchSignature = nextActivePitchSignature;
-        const chord = recognizeChord(activePitches);
-        if (chord !== chordRef.current) {
-          chordRef.current = chord;
-          onChordChange(chord);
-        }
-      }
-
       context.beginPath();
       whiteKeys.forEach(([pitch, key]) => {
         context.fillStyle = activePitches.has(pitch) ? '#ff6b5f' : '#e9ebef';
@@ -245,7 +228,7 @@ export const PianoRoll = memo(function PianoRoll({
       cancelAnimationFrame(drawRaf);
       window.removeEventListener('resize', resize);
     };
-  }, [duration, getElapsed, keySignature, labelMode, maxNoteDuration, onChordChange, sortedNotes, timeline]);
+  }, [duration, getElapsed, keySignature, labelMode, maxNoteDuration, sortedNotes, timeline]);
 
   return <>
     <canvas ref={canvasRef} />

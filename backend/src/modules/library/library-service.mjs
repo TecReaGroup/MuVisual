@@ -5,6 +5,11 @@ import { paths } from '../../config/paths.mjs';
 
 const encodeId = value => Buffer.from(value, 'utf8').toString('base64url');
 const decodeId = value => Buffer.from(value, 'base64url').toString('utf8');
+const instrumentStorageNames = { vocals: 'vocal', drums: 'drum' };
+
+function storageInstrumentName(instrument) {
+  return instrumentStorageNames[instrument] ?? instrument;
+}
 
 export const encodeLibraryId = (source, folderName) => encodeId(`${source}:${folderName}`);
 
@@ -64,11 +69,12 @@ export async function readLibrary() {
     const files = (await readdir(folderPath, { withFileTypes: true })).filter(file => file.isFile());
     const sourceAudio = files.find(file => file.name === `${folderName}.mp3`)
       ?? files.find(file => file.name.toLowerCase().endsWith('.mp3'));
-    const beatAnalysis = files.find(file => file.name.toLowerCase().endsWith('_beat.json'));
+    const metadata = files.find(file => file.name.toLowerCase().endsWith('_meta.json'));
     const instruments = {};
 
     for (const instrument of instrumentNames) {
-      const instrumentPath = join(folderPath, instrument);
+      const storageInstrument = storageInstrumentName(instrument);
+      const instrumentPath = join(folderPath, storageInstrument);
       let instrumentFiles;
       try {
         instrumentFiles = (await readdir(instrumentPath, { withFileTypes: true })).filter(file => file.isFile());
@@ -76,8 +82,8 @@ export async function readLibrary() {
         if (error?.code === 'ENOENT') continue;
         throw error;
       }
-      const audio = instrumentFiles.find(file => file.name.toLowerCase().endsWith(`_${instrument}.mp3`));
-      const midi = instrumentFiles.find(file => ['.mid', '.midi'].includes(extname(file.name).toLowerCase()) && file.name.toLowerCase().includes(`_${instrument}.`));
+      const audio = instrumentFiles.find(file => file.name.toLowerCase().endsWith(`_${storageInstrument}.mp3`));
+      const midi = instrumentFiles.find(file => ['.mid', '.midi'].includes(extname(file.name).toLowerCase()) && file.name.toLowerCase().includes(`_${storageInstrument}.`));
       if (audio || midi) {
         instruments[instrument] = {
           audioUrl: audio ? `/media/${id}/instrument/${instrument}/audio` : null,
@@ -86,7 +92,7 @@ export async function readLibrary() {
       }
     }
 
-    const primaryFile = sourceAudio ?? beatAnalysis;
+    const primaryFile = sourceAudio ?? metadata;
     const fileStats = primaryFile ? await stat(join(folderPath, primaryFile.name)) : null;
     const { title, album } = splitFolderName(folderName);
     return {
@@ -95,7 +101,7 @@ export async function readLibrary() {
       album,
       source,
       audioUrl: sourceAudio ? `/media/${id}/audio` : null,
-      beatUrl: beatAnalysis ? `/media/${id}/beats` : null,
+      metadataUrl: metadata ? `/media/${id}/metadata` : null,
       instruments,
       size: fileStats?.size ?? 0,
       updatedAt: fileStats?.mtime.toISOString() ?? null,
@@ -113,7 +119,7 @@ export async function findMedia(id, kind) {
   const files = (await readdir(folderPath, { withFileTypes: true })).filter(file => file.isFile());
   const matchers = {
     audio: file => file.name === `${folderName}.mp3` || file.name.toLowerCase().endsWith('.mp3'),
-    beats: file => file.name.toLowerCase().endsWith('_beat.json'),
+    metadata: file => file.name.toLowerCase().endsWith('_meta.json'),
   };
   const file = files.find(matchers[kind]);
   return file ? join(folderPath, file.name) : null;
@@ -124,12 +130,13 @@ export async function findInstrumentMedia(id, instrument, kind) {
   const libraryEntry = await resolveLibraryEntry(id);
   if (!libraryEntry) return null;
   const { folderName, root } = libraryEntry;
-  const instrumentPath = join(root, folderName, instrument);
+  const storageInstrument = storageInstrumentName(instrument);
+  const instrumentPath = join(root, folderName, storageInstrument);
   try {
     const files = (await readdir(instrumentPath, { withFileTypes: true })).filter(file => file.isFile());
     const file = kind === 'audio'
-      ? files.find(entry => entry.name.toLowerCase().endsWith(`_${instrument}.mp3`))
-      : files.find(entry => ['.mid', '.midi'].includes(extname(entry.name).toLowerCase()) && entry.name.toLowerCase().includes(`_${instrument}.`));
+      ? files.find(entry => entry.name.toLowerCase().endsWith(`_${storageInstrument}.mp3`))
+      : files.find(entry => ['.mid', '.midi'].includes(extname(entry.name).toLowerCase()) && entry.name.toLowerCase().includes(`_${storageInstrument}.`));
     return file ? join(instrumentPath, file.name) : null;
   } catch (error) {
     if (error?.code === 'ENOENT') return null;

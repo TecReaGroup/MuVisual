@@ -22,6 +22,14 @@ export type BeatAnalysis = {
   downbeats: number[];
 };
 
+export type SongMetadata = BeatAnalysis & {
+  bpm: number;
+  keySignature: string;
+  timeSignature: string;
+  beatsPerMeasure: number;
+  chords: Array<{ beat: number; time: number; chord: string }>;
+};
+
 export type LabelMode = 'name' | 'number';
 
 export type ViewMode = 'roll' | 'score';

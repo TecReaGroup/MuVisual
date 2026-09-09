@@ -96,7 +96,7 @@ async function routeRequest(request, response, url, requestId) {
     return;
   }
 
-  const mediaMatch = request.method === 'GET' && url.pathname.match(/^\/media\/([^/]+)\/(audio|beats)$/);
+  const mediaMatch = request.method === 'GET' && url.pathname.match(/^\/media\/([^/]+)\/(audio|metadata)$/);
   if (mediaMatch) {
     const filePath = await findMedia(mediaMatch[1], mediaMatch[2]);
     if (!filePath) {

@@ -39,7 +39,6 @@ export function StudioPage({ initialMidi, onBack }: StudioPageProps) {
   const [labelMode, setLabelMode] = useState<LabelMode>('name');
   const [viewMode, setViewMode] = useState<ViewMode>('roll');
   const [controlsCollapsed, setControlsCollapsed] = useState(true);
-  const [chordName, setChordName] = useState<string | null>(null);
   const [instrument, setInstrument] = useState<Instrument>(initialInstrument);
   const [instruments, setInstruments] = useState<Partial<Record<Instrument, { audioUrl: string | null; midi: MidiVariant | null }>>>(() => initialMidi?.instruments ?? (initialMidi ? { piano: { audioUrl: null, midi: toMidiVariant(initialMidi) } } : {}));
   const [audioSource, setAudioSource] = useState<AudioSource>(initialAudioSource);
@@ -55,6 +54,12 @@ export function StudioPage({ initialMidi, onBack }: StudioPageProps) {
     [beatAnalysis, beatEnhance, bpm, gridDelay],
   );
   const playback = usePlayback(notes, muted, volume, audioSource, instrument, audioUrls, resourceAudioUrls);
+  const chords = initialMidi?.metadata?.chords ?? [];
+  let chordName = '';
+  for (const entry of chords) {
+    if (entry.time > playback.elapsed) break;
+    chordName = entry.chord === 'N' ? '' : entry.chord;
+  }
   const loadStatusLabel = {
     loading: t('studio.loadingResources'),
     ready: t('studio.ready'),
@@ -70,9 +75,6 @@ export function StudioPage({ initialMidi, onBack }: StudioPageProps) {
     setAudioUrls(current => ({ original: current.original, instrument: next.audioUrl }));
     if (next.midi) {
       setNotes(next.midi.notes);
-      setBpm(next.midi.bpm);
-      setKeySignature(next.midi.keySignature);
-      setGridDelay(next.midi.backgroundDelayMs);
     } else {
       setNotes([]);
       if (audioSource === 'midi') setAudioSource(next.audioUrl ? 'instrument' : 'original');
@@ -99,17 +101,16 @@ export function StudioPage({ initialMidi, onBack }: StudioPageProps) {
         playback.seek(Math.max(0, Math.min(playback.duration, playback.getElapsed() + event.deltaY / 240 * beatStep)));
       } : undefined}>
         {viewMode === 'roll'
-          ? <PianoRoll duration={playback.duration} getElapsed={playback.getElapsed} keySignature={keySignature} labelMode={labelMode} notes={notes} timeline={timeline} onChordChange={setChordName} onSeek={playback.seek} />
-          : <JianpuView bpm={bpm} notes={notes} getElapsed={playback.getElapsed} keySignature={keySignature} timeline={timeline} />}
+          ? <PianoRoll duration={playback.duration} getElapsed={playback.getElapsed} keySignature={keySignature} labelMode={labelMode} notes={notes} timeline={timeline} onSeek={playback.seek} />
+          : <JianpuView bpm={bpm} notes={notes} getElapsed={playback.getElapsed} keySignature={keySignature} timeline={timeline} metadata={initialMidi?.metadata} />}
         <div className="canvas-label">
-          <span>{t(viewMode === 'roll' ? 'studio.liveVisualizer' : 'studio.numberedNotation')}</span>
+          <span className="current-chord" aria-live="polite">{chordName || '-'}</span>
           <div className="view-switch" role="group" aria-label={t('studio.viewSettings')}>
             <button className={viewMode === 'roll' ? 'selected' : ''} onClick={() => setViewMode('roll')} aria-label={t('studio.pianoRollView')} title={t('studio.pianoRollView')}><Piano size={15} /></button>
             <button className={viewMode === 'score' ? 'selected' : ''} onClick={() => setViewMode('score')} aria-label={t('studio.scoreView')} title={t('studio.scoreView')}><ListMusic size={15} /></button>
             <button onClick={() => setControlsCollapsed(value => !value)} aria-label={t(controlsCollapsed ? 'studio.openSettings' : 'studio.closeSettings')} title={t(controlsCollapsed ? 'studio.openSettings' : 'studio.closeSettings')}>{controlsCollapsed ? <PanelRightOpen size={15} /> : <PanelRightClose size={15} />}</button>
           </div>
         </div>
-        {viewMode === 'roll' && <div className={`chord-display ${chordName ? 'visible' : ''}`} aria-live="polite">{chordName ?? ''}</div>}
       </div>
       <aside className={`controls ${controlsCollapsed ? 'collapsed' : ''}`}>
         <PlaybackControls
