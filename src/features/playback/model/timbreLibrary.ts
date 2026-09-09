@@ -1,5 +1,6 @@
-import { DrumMachine, Soundfont, type DrumMachineOptions, type Storage } from 'smplr';
+import { Soundfont, type Storage } from 'smplr';
 import type { Instrument } from '../../../entities/music/model/types';
+import { loadDrumKit } from './drumKit';
 
 const TIMBRE_SOURCES = {
   piano: 'acoustic_grand_piano',
@@ -20,30 +21,7 @@ const TIMBRE_TRIM_DB = {
   electric_bass_finger: 4.5,
   electric_guitar_clean: 0,
   string_ensemble_1: -2,
-  'TR-808': 0,
-} as const satisfies Record<TimbreSource, number>;
-
-// GM percussion 35-81. Missing TR-808 voices use the closest available family.
-const GM_DRUM_SAMPLES = [
-  'kick', 'kick', 'rimshot', 'snare', 'clap', 'snare',
-  'tom-low', 'hihat-close', 'tom-low', 'hihat-close', 'mid-tom', 'hihat-open',
-  'mid-tom', 'tom-hi', 'cymbal', 'tom-hi', 'cymbal', 'cymbal', 'cowbell',
-  'hihat-close', 'cymbal', 'cowbell', 'cymbal', 'clave', 'cymbal',
-  'conga-hi', 'conga-low', 'conga-hi', 'conga-hi', 'conga-low',
-  'tom-hi', 'tom-low', 'cowbell', 'cowbell', 'maraca', 'maraca',
-  'clave', 'clave', 'maraca', 'maraca', 'clave', 'clave', 'clave',
-  'conga-hi', 'conga-low', 'cowbell', 'cowbell',
-] as const;
-
-const DRUM_FAMILY_TRIM_DB = {
-  kick: 0, snare: 0, rimshot: -3, clap: -3,
-  'tom-low': -2, 'mid-tom': -2, 'tom-hi': -2,
-  'hihat-close': -6, 'hihat-open': -5, cymbal: -6,
-  cowbell: -5, clave: -6, maraca: -6, 'conga-hi': -3, 'conga-low': -3,
-} as const satisfies Record<typeof GM_DRUM_SAMPLES[number], number>;
-
-// Pedal hi-hat and ride need distinct levels even when they share an 808 sample.
-const DRUM_NOTE_TRIM_DB: Partial<Record<number, number>> = { 44: -8, 51: -5, 59: -5 };
+} as const satisfies Record<Exclude<TimbreSource, 'TR-808'>, number>;
 
 async function validateSampleResponse(response: Response, url: string) {
   if (!response.ok) throw new Error(`Timbre request failed (${response.status}): ${url}`);
@@ -102,53 +80,8 @@ export function createTimbreLibrary(context: AudioContext, destination: AudioNod
   const pending = new Map<TimbreSource, Promise<TimbreDefinition>>();
 
   async function loadSource(source: TimbreSource): Promise<TimbreDefinition> {
+    if (source === 'TR-808') return loadDrumKit(context, destination, sampleStorage);
     const options = { destination, storage: sampleStorage, disableScheduler: true };
-    if (source === 'TR-808') {
-      const baseUrl = `${import.meta.env.BASE_URL}sample-library/TR-808-v1`;
-      const manifest: unknown = await (await sampleStorage.fetch(`${baseUrl}/dm.json`)).json();
-      if (!manifest || typeof manifest !== 'object' || !('samples' in manifest)
-        || !Array.isArray(manifest.samples) || !manifest.samples.length
-        || !manifest.samples.every((sample: unknown) => typeof sample === 'string')) {
-        throw new Error('Invalid TR-808 sample manifest');
-      }
-      // Supplying the manifest avoids smplr's unhandled secondary promise on fetch failure.
-      const instrument: Exclude<DrumMachineOptions['instrument'], string | undefined> = {
-        baseUrl, name: source, samples: manifest.samples, sampleNames: [],
-        nameToSample: {}, sampleNameVariations: {},
-      };
-      for (const sample of instrument.samples) {
-        const name = sample.includes('/') ? sample : sample.replace('-', '/');
-        const [family] = name.split('/');
-        instrument.nameToSample[name] = name;
-        instrument.nameToSample[family] ??= name;
-        if (!instrument.sampleNames.includes(family)) instrument.sampleNames.push(family);
-        (instrument.sampleNameVariations[family] ??= []).push(name);
-      }
-      if (GM_DRUM_SAMPLES.some(name => !instrument.nameToSample[name])) {
-        throw new Error('TR-808 manifest is missing required percussion samples');
-      }
-      const drums = new DrumMachine(context, { ...options, instrument });
-      try {
-        await drums.load;
-      } catch (error) {
-        drums.output.disconnect();
-        throw error;
-      }
-      return {
-        start: ({ note, duration: _duration, ...hit }) => {
-          const sample = GM_DRUM_SAMPLES[note - 35];
-          if (!sample) {
-            hit.onEnded();
-            return () => undefined;
-          }
-          // Choke at the scheduled hit time, not when the lookahead queues it.
-          if (note === 42 || note === 44) drums.stop({ stopId: 'hihat-open', time: hit.time });
-          const trimDb = TIMBRE_TRIM_DB[source] + (DRUM_NOTE_TRIM_DB[note] ?? DRUM_FAMILY_TRIM_DB[sample]);
-          // Other percussion keeps its natural tail until transport stop.
-          return drums.start({ ...hit, note: sample, gainOffset: 10 ** (trimDb / 20) });
-        },
-      };
-    }
     const soundfont = new Soundfont(context, {
       ...options,
       instrument: source,
