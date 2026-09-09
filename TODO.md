@@ -8,7 +8,7 @@
 - [x] 节拍增强
 - [x] develop branch 创建
 - [x] 更新 MIDI 元数据来源、和弦 Studio 当前和弦与谱面标注
-- [ ] sound_source 更新，以及按需加载音源
+- [x] sample-library 更新，以及按需加载音源
 
 ## TBD
 

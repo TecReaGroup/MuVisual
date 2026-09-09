@@ -109,8 +109,7 @@ export function usePlayback(
   const mediaGainsRef = useRef<MediaGains>({});
   const mediaLoadRef = useRef<Promise<void>>(Promise.resolve());
   const midiMuted = muted || audioSource !== 'midi';
-  const midiTimbre = instrument === 'piano' ? 'piano' : 'string';
-  const { getAudioContext, getAudioTime, loadStatus: timbreLoadStatus, playNote, prepare, stopAll } = usePianoAudio(midiMuted, volume, midiTimbre);
+  const { getAudioContext, getAudioTime, loadStatus: timbreLoadStatus, loadTimbre, playNote, prepare, stopAll } = usePianoAudio(midiMuted, volume, instrument);
   const sortedNotes = useMemo(() => [...notes].sort((first, second) => first.start - second.start), [notes]);
   const notesRef = useRef(sortedNotes);
   notesRef.current = sortedNotes;
@@ -288,7 +287,7 @@ export function usePlayback(
       pause();
       return;
     }
-    if (loadStatus !== 'ready') return;
+    if (mediaLoadStatus !== 'ready' || timbreLoadStatus === 'loading') return;
     if (preparingRef.current) {
       startRequestRef.current += 1;
       preparingRef.current = false;
@@ -301,11 +300,18 @@ export function usePlayback(
     }
     const request = ++startRequestRef.current;
     preparingRef.current = true;
-    await Promise.all([prepare(), mediaLoadRef.current]);
+    let timbreReady: boolean;
+    try {
+      [timbreReady] = await Promise.all([prepare(), mediaLoadRef.current]);
+    } catch {
+      if (request === startRequestRef.current) preparingRef.current = false;
+      return;
+    }
     if (request !== startRequestRef.current) return;
     preparingRef.current = false;
+    if (!timbreReady) return;
     startAt(pausedRef.current);
-  }, [duration, loadStatus, pause, playing, prepare, startAt]);
+  }, [duration, mediaLoadStatus, timbreLoadStatus, pause, playing, prepare, startAt]);
 
   toggleRef.current = toggle;
   useEffect(() => {
@@ -358,6 +364,7 @@ export function usePlayback(
   }, [duration, getAudioTime, playing, startAt, stopAll, stopMedia]);
 
   const reset = useCallback(() => {
+    if (timbreLoadStatus === 'error') void loadTimbre();
     startRequestRef.current += 1;
     seekRequestRef.current += 1;
     window.clearTimeout(seekTimerRef.current);
@@ -372,9 +379,18 @@ export function usePlayback(
     nextNoteIndexRef.current = 0;
     setElapsed(0);
     setPlaying(false);
-  }, [stopAll, stopMedia]);
+  }, [loadTimbre, stopAll, stopMedia, timbreLoadStatus]);
 
   useEffect(() => () => {
+    startRequestRef.current += 1;
+    seekRequestRef.current += 1;
+    preparingRef.current = false;
+    window.clearTimeout(seekTimerRef.current);
+  }, [instrument]);
+
+  useEffect(() => () => {
+    startRequestRef.current += 1;
+    seekRequestRef.current += 1;
     window.clearTimeout(seekTimerRef.current);
     stopMedia();
     Object.values(mediaGainsRef.current).forEach(gain => gain?.disconnect());

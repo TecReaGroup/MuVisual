@@ -1,114 +1,164 @@
-import { CacheStorage, HttpStorage, LAYERS, Soundfont, SplendidGrandPiano } from 'smplr';
+import { DrumMachine, Soundfont, type DrumMachineOptions, type Storage } from 'smplr';
+import type { Instrument } from '../../../entities/music/model/types';
 
-export type TimbreId = 'piano' | 'string';
-export type TimbreStart = { note: number; time: number; duration: number; velocity: number; decayTime?: number; onEnded?: () => void };
-type StopFn = (time?: number) => void;
-export type TimbrePlayer = SplendidGrandPiano | Soundfont;
-export type TimbreDefinition = {
-  player: TimbrePlayer;
-  velocity: (volume: number) => number;
-  start: (note: TimbreStart) => StopFn;
+const TIMBRE_SOURCES = {
+  piano: 'acoustic_grand_piano',
+  bass: 'electric_bass_finger',
+  guitar: 'electric_guitar_clean',
+  other: 'string_ensemble_1',
+  vocals: 'string_ensemble_1',
+  drums: 'TR-808',
+} as const satisfies Record<Instrument, string>;
+
+type TimbreSource = typeof TIMBRE_SOURCES[Instrument];
+type TimbreStart = { note: number; time: number; duration: number; velocity: number; onEnded: () => void };
+type TimbreDefinition = { start: (note: TimbreStart) => (time?: number) => void };
+
+// GM percussion 35-81. Missing TR-808 voices use the closest available family.
+const GM_DRUM_SAMPLES = [
+  'kick', 'kick', 'rimshot', 'snare', 'clap', 'snare',
+  'tom-low', 'hihat-close', 'tom-low', 'hihat-close', 'mid-tom', 'hihat-open',
+  'mid-tom', 'tom-hi', 'cymbal', 'tom-hi', 'cymbal', 'cymbal', 'cowbell',
+  'hihat-close', 'cymbal', 'cowbell', 'cymbal', 'clave', 'cymbal',
+  'conga-hi', 'conga-low', 'conga-hi', 'conga-hi', 'conga-low',
+  'tom-hi', 'tom-low', 'cowbell', 'cowbell', 'maraca', 'maraca',
+  'clave', 'clave', 'maraca', 'maraca', 'clave', 'clave', 'clave',
+  'conga-hi', 'conga-low', 'cowbell', 'cowbell',
+] as const;
+
+async function validateSampleResponse(response: Response, url: string) {
+  if (!response.ok) throw new Error(`Timbre request failed (${response.status}): ${url}`);
+  const contentType = response.headers.get('content-type') ?? '';
+  if (contentType.includes('text/html')) throw new Error(`Expected audio resource but received HTML: ${url}`);
+  if (new URL(url).pathname.endsWith('-mp3.js')) {
+    const source = await response.clone().text();
+    const header = source.indexOf('MIDI.Soundfont.');
+    try {
+      if (header < 0) throw new Error('Missing soundfont assignment');
+      const start = source.indexOf('=', header) + 2;
+      JSON.parse(source.slice(start, source.lastIndexOf(',')) + '}');
+    } catch {
+      throw new Error(`Invalid soundfont response (${contentType || 'unknown content type'}): ${url}`);
+    }
+  }
+}
+
+const sampleStorage: Storage = {
+  async fetch(url) {
+    const request = new Request(new URL(url, window.location.href));
+    let cache: Cache | undefined;
+    try {
+      if ('caches' in window) {
+        cache = await window.caches.open('muvisual-timbres-v1');
+        const cached = await cache.match(request);
+        if (cached) {
+          try {
+            await validateSampleResponse(cached, request.url);
+            return cached;
+          } catch {
+            await cache.delete(request);
+          }
+        }
+      }
+    } catch {
+      // Private browsing and quota policies must not prevent playback.
+      cache = undefined;
+    }
+    // Bypass HTTP cache on a persistent-cache miss, including invalid cached responses.
+    const response = await fetch(request, { cache: 'reload' });
+    await validateSampleResponse(response, request.url);
+    if (cache) {
+      try {
+        await cache.put(request, response.clone());
+      } catch {
+        // Network playback remains available when persistent storage fails.
+      }
+    }
+    return response;
+  },
 };
 
-const PIANO_CACHE_NAME = 'muvisual-piano-v1';
-const PIANO_BASE_URL = `${import.meta.env.BASE_URL}audio/splendid-grand-piano`;
-const PIANO_VELOCITY_RANGE: [number, number] = [68, 84];
-const SAMPLE_END_MARGIN_SECONDS = 0.05;
-const LONG_NOTE_RELEASE_MIN_SECONDS = 0.35;
-const LONG_NOTE_RELEASE_MAX_SECONDS = 1.2;
-const STRING_INSTRUMENT = 'string_ensemble_1';
-const STRING_INSTRUMENT_URL = `${import.meta.env.BASE_URL}audio/soundfonts/string_ensemble_1-mp3.js`;
-const STRING_SAMPLE_DURATION_SECONDS = 3.186;
-const STRING_LOWEST_SAMPLE_PITCH = 21;
-const STRING_HIGHEST_SAMPLE_PITCH = 108;
+export function createTimbreLibrary(context: AudioContext, destination: AudioNode) {
+  const definitions = new Map<TimbreSource, TimbreDefinition>();
+  const pending = new Map<TimbreSource, Promise<TimbreDefinition>>();
 
-const pianoLayer = LAYERS.find(layer => (
-  layer.vel_range[0] === PIANO_VELOCITY_RANGE[0]
-  && layer.vel_range[1] === PIANO_VELOCITY_RANGE[1]
-));
-const pianoNotes = (pianoLayer?.samples ?? [])
-  .filter(([, name]) => !String(name).includes('#'))
-  .filter((_, index, samples) => index % 2 === 0 || index === samples.length - 1)
-  .map(([note]) => Number(note));
-
-function pianoPlaybackEnvelope(piano: SplendidGrandPiano, note: TimbreStart) {
-  if (!pianoLayer) return note;
-
-  let offset = 0;
-  while (!piano.buffers[`${pianoLayer.name}${note.note + offset}`] && Math.abs(offset) < 127) {
-    offset = offset > 0 ? -offset : 1 - offset;
+  async function loadSource(source: TimbreSource): Promise<TimbreDefinition> {
+    const options = { destination, storage: sampleStorage, disableScheduler: true };
+    if (source === 'TR-808') {
+      const baseUrl = `${import.meta.env.BASE_URL}sample-library/TR-808-v1`;
+      const manifest: unknown = await (await sampleStorage.fetch(`${baseUrl}/dm.json`)).json();
+      if (!manifest || typeof manifest !== 'object' || !('samples' in manifest)
+        || !Array.isArray(manifest.samples) || !manifest.samples.length
+        || !manifest.samples.every((sample: unknown) => typeof sample === 'string')) {
+        throw new Error('Invalid TR-808 sample manifest');
+      }
+      // Supplying the manifest avoids smplr's unhandled secondary promise on fetch failure.
+      const instrument: Exclude<DrumMachineOptions['instrument'], string | undefined> = {
+        baseUrl, name: source, samples: manifest.samples, sampleNames: [],
+        nameToSample: {}, sampleNameVariations: {},
+      };
+      for (const sample of instrument.samples) {
+        const name = sample.includes('/') ? sample : sample.replace('-', '/');
+        const [family] = name.split('/');
+        instrument.nameToSample[name] = name;
+        instrument.nameToSample[family] ??= name;
+        if (!instrument.sampleNames.includes(family)) instrument.sampleNames.push(family);
+        (instrument.sampleNameVariations[family] ??= []).push(name);
+      }
+      if (GM_DRUM_SAMPLES.some(name => !instrument.nameToSample[name])) {
+        throw new Error('TR-808 manifest is missing required percussion samples');
+      }
+      const drums = new DrumMachine(context, { ...options, instrument });
+      try {
+        await drums.load;
+      } catch (error) {
+        drums.output.disconnect();
+        throw error;
+      }
+      return {
+        start: ({ note, duration: _duration, ...hit }) => {
+          const sample = GM_DRUM_SAMPLES[note - 35];
+          if (!sample) {
+            hit.onEnded();
+            return () => undefined;
+          }
+          // Percussion plays its natural tail; transport stop still cancels the hit.
+          return drums.start({ ...hit, note: sample });
+        },
+      };
+    }
+    const soundfont = new Soundfont(context, {
+      ...options,
+      instrument: source,
+       instrumentUrl: `${import.meta.env.BASE_URL}sample-library/FluidR3_GM-v1/${source}-mp3.js`,
+    });
+    try {
+      await soundfont.load;
+    } catch (error) {
+      soundfont.disconnect();
+      throw error;
+    }
+    return { start: note => soundfont.start(note) };
   }
-  const buffer = piano.buffers[`${pianoLayer.name}${note.note + offset}`];
-  if (!buffer) return note;
 
-  const detuneCents = -offset * 100;
-  const playbackDuration = buffer.duration / Math.pow(2, detuneCents / 1200);
-  const defaultRelease = Math.max(0.025, Math.min(0.18, note.duration * 0.4));
-  if (note.duration + defaultRelease + SAMPLE_END_MARGIN_SECONDS < playbackDuration) {
-    return { ...note, decayTime: defaultRelease };
-  }
-
-  const release = Math.min(
-    LONG_NOTE_RELEASE_MAX_SECONDS,
-    Math.max(LONG_NOTE_RELEASE_MIN_SECONDS, playbackDuration * 0.28),
-  );
   return {
-    ...note,
-    duration: Math.max(0.05, playbackDuration - release - SAMPLE_END_MARGIN_SECONDS),
-    decayTime: release,
+    get(instrument: Instrument) {
+      return definitions.get(TIMBRE_SOURCES[instrument]);
+    },
+    load(instrument: Instrument): Promise<TimbreDefinition> {
+      const source = TIMBRE_SOURCES[instrument];
+      const ready = definitions.get(source);
+      if (ready) return Promise.resolve(ready);
+      const loading = pending.get(source);
+      if (loading) return loading;
+      const promise = loadSource(source).then(definition => {
+        definitions.set(source, definition);
+        return definition;
+      }).finally(() => pending.delete(source));
+      pending.set(source, promise);
+      return promise;
+    },
   };
 }
 
-function stringPlaybackEnvelope(note: TimbreStart) {
-  const samplePitch = Math.max(STRING_LOWEST_SAMPLE_PITCH, Math.min(STRING_HIGHEST_SAMPLE_PITCH, note.note));
-  const detuneCents = (note.note - samplePitch) * 100;
-  const playbackDuration = STRING_SAMPLE_DURATION_SECONDS / Math.pow(2, detuneCents / 1200);
-  const defaultRelease = 0.2;
-  if (note.duration + defaultRelease + SAMPLE_END_MARGIN_SECONDS < playbackDuration) {
-    return note;
-  }
-
-  const release = Math.min(
-    LONG_NOTE_RELEASE_MAX_SECONDS,
-    Math.max(LONG_NOTE_RELEASE_MIN_SECONDS, playbackDuration * 0.28),
-  );
-  return {
-    ...note,
-    duration: Math.max(0.05, playbackDuration - release - SAMPLE_END_MARGIN_SECONDS),
-    decayTime: release,
-  };
-}
-
-export type TimbreLibrary = {
-  definitions: Record<TimbreId, TimbreDefinition>;
-  load: Promise<boolean>;
-};
-
-export function createTimbreLibrary(context: AudioContext, destinations: Record<TimbreId, AudioNode>): TimbreLibrary {
-  const piano = new SplendidGrandPiano(context, {
-    baseUrl: PIANO_BASE_URL,
-    destination: destinations.piano,
-    storage: new CacheStorage(PIANO_CACHE_NAME),
-    notesToLoad: { notes: pianoNotes, velocityRange: PIANO_VELOCITY_RANGE },
-  });
-  const string = new Soundfont(context, {
-    instrument: STRING_INSTRUMENT,
-    instrumentUrl: STRING_INSTRUMENT_URL,
-    destination: destinations.string,
-    storage: HttpStorage,
-  });
-  const pianoDefinition: TimbreDefinition = {
-    player: piano,
-    velocity: volume => Math.round(PIANO_VELOCITY_RANGE[0] + (PIANO_VELOCITY_RANGE[1] - PIANO_VELOCITY_RANGE[0]) * volume / 100),
-    start: note => piano.start(pianoPlaybackEnvelope(piano, note)),
-  };
-  const stringDefinition: TimbreDefinition = {
-    player: string,
-    velocity: volume => Math.round(32 + 95 * volume / 100),
-    start: note => string.start(stringPlaybackEnvelope(note)),
-  };
-  return {
-    definitions: { piano: pianoDefinition, string: stringDefinition },
-    load: Promise.all([piano.load, string.load]).then(() => true),
-  };
-}
+export type TimbreLibrary = ReturnType<typeof createTimbreLibrary>;
