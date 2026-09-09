@@ -9,7 +9,7 @@
 - [x] develop branch 创建
 - [x] 更新 MIDI 元数据来源、和弦 Studio 当前和弦与谱面标注
 - [x] sample-library 更新，以及按需加载音源
-- [ ] 优化资源加载和缓存逻辑
+- [x] 优化资源加载和缓存逻辑, 进入 studio 后就只加载 当前乐器相关的 midi文件, audio(track 和 original), 音源资源, 并且保存到浏览器缓存里面
 
 ## TBD
 

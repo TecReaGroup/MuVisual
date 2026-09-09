@@ -14,7 +14,7 @@ export type ImportedMidi = MidiVariant & {
   beatAnalysis?: BeatAnalysis | null;
   metadata?: SongMetadata | null;
   defaultInstrument?: Instrument;
-  instruments?: Partial<Record<Instrument, { audioUrl: string | null; midi: MidiVariant | null }>>;
+  instruments?: Partial<Record<Instrument, { audioUrl: string | null; midiUrl?: string | null; midi: MidiVariant | null }>>;
   name: string;
 };
 

@@ -1,11 +1,12 @@
 import { ArrowLeft, AudioLines, ListMusic, PanelRightClose, PanelRightOpen, Piano } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { createDemoNotes, createMusicalTimeline, type AudioSource, type BeatAnalysis, type Instrument, type LabelMode, type Note, type ViewMode } from '../../entities/music';
-import { type ImportedMidi, type MidiVariant } from '../../features/midi-import';
+import { parseMidiFile, type ImportedMidi, type MidiVariant } from '../../features/midi-import';
 import { PianoRoll } from '../../features/piano-roll';
 import { PlaybackControls, usePlayback } from '../../features/playback';
 import { JianpuView } from '../../features/score';
 import { LanguageButton, useI18n } from '../../shared/i18n';
+import { fetchMusicResource } from '../../shared/lib/fetchMusicResource';
 
 type StudioPageProps = {
   initialMidi?: ImportedMidi;
@@ -27,7 +28,7 @@ export function StudioPage({ initialMidi, onBack }: StudioPageProps) {
   const initialInstrument = initialMidi?.defaultInstrument ?? 'piano';
   const initialInstrumentMedia = initialMidi?.instruments?.[initialInstrument];
   const initialAudioSource: AudioSource = initialMidi?.instruments
-    ? initialInstrumentMedia?.midi ? 'midi' : initialInstrumentMedia?.audioUrl ? 'instrument' : 'original'
+    ? initialInstrumentMedia?.midi || initialInstrumentMedia?.midiUrl ? 'midi' : initialInstrumentMedia?.audioUrl ? 'instrument' : 'original'
     : 'midi';
   const [notes, setNotes] = useState<Note[]>(() => initialMidi?.notes ?? createDemoNotes());
   const [bpm, setBpm] = useState(initialMidi?.bpm ?? 92);
@@ -40,20 +41,41 @@ export function StudioPage({ initialMidi, onBack }: StudioPageProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('roll');
   const [controlsCollapsed, setControlsCollapsed] = useState(true);
   const [instrument, setInstrument] = useState<Instrument>(initialInstrument);
-  const [instruments, setInstruments] = useState<Partial<Record<Instrument, { audioUrl: string | null; midi: MidiVariant | null }>>>(() => initialMidi?.instruments ?? (initialMidi ? { piano: { audioUrl: null, midi: toMidiVariant(initialMidi) } } : {}));
+  const [instruments, setInstruments] = useState<NonNullable<ImportedMidi['instruments']>>(() => initialMidi?.instruments ?? (initialMidi ? { piano: { audioUrl: null, midi: toMidiVariant(initialMidi) } } : {}));
   const [audioSource, setAudioSource] = useState<AudioSource>(initialAudioSource);
   const [audioUrls, setAudioUrls] = useState(() => initialMidi?.audioUrls ?? { original: null, instrument: null });
   const [beatAnalysis, setBeatAnalysis] = useState<BeatAnalysis | null>(() => initialMidi?.beatAnalysis ?? null);
   const [beatEnhance, setBeatEnhance] = useState(true);
-  const resourceAudioUrls = useMemo(
-    () => [...new Set([audioUrls.original, ...Object.values(instruments).map(media => media?.audioUrl)].filter((url): url is string => Boolean(url)))],
-    [audioUrls.original, instruments],
-  );
+  const [midiErrorInstrument, setMidiErrorInstrument] = useState<Instrument | null>(null);
+  const currentMedia = instruments[instrument];
+  const midiLoadStatus = midiErrorInstrument === instrument ? 'error'
+    : currentMedia?.midiUrl && !currentMedia.midi ? 'loading' : 'ready';
+  useEffect(() => {
+    if (!currentMedia?.midiUrl || currentMedia.midi) return;
+    const midiUrl = currentMedia.midiUrl;
+    const controller = new AbortController();
+    async function loadCurrentMidi() {
+      try {
+        const bytes = await fetchMusicResource(midiUrl, controller.signal);
+        const midi = await parseMidiFile(new File([bytes], `${instrument}.mid`, { type: 'audio/midi' }));
+        if (controller.signal.aborted) return;
+        if (!midi) throw new Error('Unable to parse instrument MIDI');
+        setInstruments(current => ({ ...current, [instrument]: { ...current[instrument]!, midi } }));
+        setNotes(midi.notes);
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        console.error(error);
+        setMidiErrorInstrument(instrument);
+      }
+    }
+    void loadCurrentMidi();
+    return () => controller.abort();
+  }, [currentMedia, instrument]);
   const timeline = useMemo(
     () => createMusicalTimeline(bpm, gridDelay, beatEnhance ? beatAnalysis : null),
     [beatAnalysis, beatEnhance, bpm, gridDelay],
   );
-  const playback = usePlayback(notes, muted, volume, audioSource, instrument, audioUrls, resourceAudioUrls);
+  const playback = usePlayback(notes, muted, volume, audioSource, instrument, audioUrls, midiLoadStatus);
   const chords = initialMidi?.metadata?.chords ?? [];
   let chordName = '';
   for (const entry of chords) {
@@ -71,13 +93,14 @@ export function StudioPage({ initialMidi, onBack }: StudioPageProps) {
     const next = instruments[nextInstrument];
     if (!next || nextInstrument === instrument) return;
     playback.reset();
+    setMidiErrorInstrument(null);
     setInstrument(nextInstrument);
     setAudioUrls(current => ({ original: current.original, instrument: next.audioUrl }));
     if (next.midi) {
       setNotes(next.midi.notes);
     } else {
       setNotes([]);
-      if (audioSource === 'midi') setAudioSource(next.audioUrl ? 'instrument' : 'original');
+      if (audioSource === 'midi' && !next.midiUrl) setAudioSource(next.audioUrl ? 'instrument' : 'original');
     }
   };
 
@@ -117,7 +140,7 @@ export function StudioPage({ initialMidi, onBack }: StudioPageProps) {
         <PlaybackControls
           audioSource={audioSource}
           instrument={instrument}
-          availableAudioSources={{ midi: Boolean(instruments[instrument]?.midi) || !initialMidi, instrument: Boolean(audioUrls.instrument), original: Boolean(audioUrls.original) }}
+          availableAudioSources={{ midi: Boolean(currentMedia?.midi || currentMedia?.midiUrl) || !initialMidi, instrument: Boolean(audioUrls.instrument), original: Boolean(audioUrls.original) }}
           availableInstruments={Object.fromEntries((Object.keys(instruments) as Instrument[]).map(name => [name, true]))}
           beatEnhanceAvailable={Boolean(beatAnalysis)}
           beatEnhanceEnabled={beatEnhance}
