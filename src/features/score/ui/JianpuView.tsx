@@ -4,23 +4,20 @@ import type { MusicalTimeline } from '../../../entities/music/lib/musicalTimelin
 import type { Note, SongMetadata } from '../../../entities/music/model/types';
 import { useI18n } from '../../../shared/i18n';
 
-type Voice = 'high' | 'low';
-type QuantizedNotes = Map<string, Note>;
+type QuantizedNotes = Map<number, Note>;
 
 function quantizeNotes(notes: Note[], timeline: MusicalTimeline) {
-  const result: QuantizedNotes = new Map();
+  const melody: QuantizedNotes = new Map();
   notes.forEach(note => {
-    const voice: Voice = note.pitch >= 60 ? 'high' : 'low';
     const step = Math.max(0, Math.round(timeline.positionAt(note.start) * 4));
-    const key = `${voice}:${step}`;
-    const existing = result.get(key);
-    if (!existing || note.pitch < existing.pitch) result.set(key, note);
+    const existing = melody.get(step);
+    if (!existing || note.pitch > existing.pitch) melody.set(step, note);
   });
-  return result;
+  return melody;
 }
 
-function Beat({ beat, voice, notes, keySignature }: { beat: number; voice: Voice; notes: QuantizedNotes; keySignature: string }) {
-  const slots = Array.from({ length: 4 }, (_, slot) => notes.get(`${voice}:${beat * 4 + slot}`));
+function Beat({ beat, notes, keySignature }: { beat: number; notes: QuantizedNotes; keySignature: string }) {
+  const slots = Array.from({ length: 4 }, (_, slot) => notes.get(beat * 4 + slot));
   const onsets = slots.flatMap((note, slot) => note ? [slot] : []);
   const rhythm = !onsets.length ? 'empty' : onsets.some(slot => slot % 2 === 1) ? 'sixteenth' : onsets.includes(2) ? 'eighth' : 'quarter';
   const cellStarts = rhythm === 'quarter' ? [0] : rhythm === 'eighth' ? [0, 2] : [0, 1, 2, 3];
@@ -101,7 +98,14 @@ export const JianpuView = memo(function JianpuView({ bpm, getElapsed, notes, key
         activeChord = change.chord;
         if (activeChord !== 'N') changes.push({ beat: change.beat - startBeat, chord: activeChord });
       }
-      return changes;
+      const beatChords = new Map<number, string[]>();
+      changes.forEach(change => {
+        const beat = Math.floor(change.beat);
+        const labels = beatChords.get(beat) ?? [];
+        if (labels[labels.length - 1] !== change.chord) labels.push(change.chord);
+        beatChords.set(beat, labels);
+      });
+      return Array.from(beatChords, ([beat, labels]) => ({ beat, chord: labels.join(' / ') }));
     });
   }, [beatsPerMeasure, chords, totalMeasures]);
   const systems = useMemo(() => Array.from({ length: Math.ceil(totalMeasures / 2) }, (_, system) =>
@@ -170,21 +174,20 @@ export const JianpuView = memo(function JianpuView({ bpm, getElapsed, notes, key
           data-active-system="false"
           ref={element => { systemRefs.current[systemIndex] = element; }}
         >
-          <div className="staff-labels"><span>{t('score.high')}</span><span>{t('score.low')}</span></div>
           <div className="score-rows" ref={element => { rowRefs.current[systemIndex] = element; }}>
-            {(['high', 'low'] as const).map(voice => <div className="score-row" key={voice}>
+            <div className="score-row">
               {system.map(measure => <div className="score-measure" key={measure} style={{ gridTemplateColumns: `repeat(${beatsPerMeasure}, minmax(0, 1fr))` }}>
                 <span className="measure-number">{String(measure + 1).padStart(2, '0')}</span>
-                {voice === 'high' && chords.length > 0 && <div className="score-chords" style={{ gridTemplateColumns: `repeat(${beatsPerMeasure}, minmax(0, 1fr))` }}>
+                {chords.length > 0 && <div className="score-chords" style={{ gridTemplateColumns: `repeat(${beatsPerMeasure}, minmax(0, 1fr))` }}>
                   {measureChords[measure].map((change, index) => <span
                     className="score-chord"
                     key={index}
-                    style={{ gridColumn: Math.floor(change.beat) + 1 }}
+                    style={{ gridColumn: change.beat + 1, gridRow: 1 }}
                   >{change.chord}</span>)}
                 </div>}
-                {Array.from({ length: beatsPerMeasure }, (_, beat) => <Beat key={beat} beat={measure * beatsPerMeasure + beat} voice={voice} notes={quantized} keySignature={keySignature} />)}
+                {Array.from({ length: beatsPerMeasure }, (_, beat) => <Beat key={beat} beat={measure * beatsPerMeasure + beat} notes={quantized} keySignature={keySignature} />)}
               </div>)}
-            </div>)}
+            </div>
             <span className="score-cursor" ref={element => { cursorRefs.current[systemIndex] = element; }} aria-hidden="true" />
           </div>
         </section>;

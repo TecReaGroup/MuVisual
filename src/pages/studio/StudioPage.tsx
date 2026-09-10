@@ -1,5 +1,5 @@
 import { ArrowLeft, AudioLines, ListMusic, PanelRightClose, PanelRightOpen, Piano } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { createDemoNotes, createMusicalTimeline, type AudioSource, type BeatAnalysis, type Instrument, type LabelMode, type Note, type ViewMode } from '../../entities/music';
 import { parseMidiFile, type ImportedMidi, type MidiVariant } from '../../features/midi-import';
 import { PianoRoll } from '../../features/piano-roll';
@@ -12,6 +12,8 @@ type StudioPageProps = {
   initialMidi?: ImportedMidi;
   onBack?: () => void;
 };
+
+const DrumScoreView = lazy(() => import('../../features/score/ui/DrumScoreView').then(module => ({ default: module.DrumScoreView })));
 
 function toMidiVariant(midi: ImportedMidi): MidiVariant {
   return {
@@ -125,12 +127,14 @@ export function StudioPage({ initialMidi, onBack }: StudioPageProps) {
       } : undefined}>
         {viewMode === 'roll'
           ? <PianoRoll duration={playback.duration} getElapsed={playback.getElapsed} keySignature={keySignature} labelMode={labelMode} notes={notes} timeline={timeline} onSeek={playback.seek} />
-          : <JianpuView bpm={bpm} notes={notes} getElapsed={playback.getElapsed} keySignature={keySignature} timeline={timeline} metadata={initialMidi?.metadata} />}
+          : instrument === 'drums'
+            ? <Suspense fallback={<div className="score-stage" role="status">{t('studio.loadingResources')}</div>}><DrumScoreView bpm={bpm} notes={notes} getElapsed={playback.getElapsed} timeline={timeline} metadata={initialMidi?.metadata} /></Suspense>
+            : <JianpuView bpm={bpm} notes={notes} getElapsed={playback.getElapsed} keySignature={keySignature} timeline={timeline} metadata={initialMidi?.metadata} />}
         <div className="canvas-label">
-          <span>{t(viewMode === 'roll' ? 'studio.liveVisualizer' : 'studio.numberedNotation')}</span>
+          <span>{t(viewMode === 'roll' ? 'studio.liveVisualizer' : instrument === 'drums' ? 'studio.drumScore' : 'studio.numberedNotation')}</span>
           <div className="view-switch" role="group" aria-label={t('studio.viewSettings')}>
             <button className={viewMode === 'roll' ? 'selected' : ''} onClick={() => setViewMode('roll')} aria-label={t('studio.pianoRollView')} title={t('studio.pianoRollView')}><Piano size={15} /></button>
-            <button className={viewMode === 'score' ? 'selected' : ''} onClick={() => setViewMode('score')} aria-label={t('studio.scoreView')} title={t('studio.scoreView')}><ListMusic size={15} /></button>
+            <button className={viewMode === 'score' ? 'selected' : ''} onClick={() => setViewMode('score')} aria-label={t(instrument === 'drums' ? 'studio.drumScore' : 'studio.scoreView')} title={t(instrument === 'drums' ? 'studio.drumScore' : 'studio.scoreView')}><ListMusic size={15} /></button>
             <button onClick={() => setControlsCollapsed(value => !value)} aria-label={t(controlsCollapsed ? 'studio.openSettings' : 'studio.closeSettings')} title={t(controlsCollapsed ? 'studio.openSettings' : 'studio.closeSettings')}>{controlsCollapsed ? <PanelRightOpen size={15} /> : <PanelRightClose size={15} />}</button>
           </div>
         </div>
