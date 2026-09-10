@@ -121,6 +121,16 @@ export function usePlayback(
     return Math.max(0, getAudioTime() - transportStartAudioTimeRef.current);
   }, [getAudioTime]);
 
+  const getOutputPosition = useCallback(() => {
+    // Hold the start position during pre-roll and ignore backward output-clock corrections.
+    const position = Math.min(duration, Math.max(
+      elapsedRef.current,
+      getOutputTime() - transportStartAudioTimeRef.current,
+    ));
+    elapsedRef.current = position;
+    return position;
+  }, [duration, getOutputTime]);
+
   useEffect(() => {
     ensureMediaGains();
     const context = getAudioContext();
@@ -189,10 +199,8 @@ export function usePlayback(
 
     const updatePosition = () => {
       const now = performance.now();
-      const playbackTime = getTimelineTime();
-      const current = Math.min(playbackTime, duration);
-      elapsedRef.current = current;
-      if (playbackTime >= duration) {
+      const current = getOutputPosition();
+      if (current >= duration) {
         stopAll();
         stopMedia();
         pausedRef.current = duration;
@@ -214,7 +222,7 @@ export function usePlayback(
       window.clearInterval(scheduleInterval);
       cancelAnimationFrame(playbackRafRef.current!);
     };
-  }, [duration, getTimelineTime, playing, scheduleMidiNotes, stopAll, stopMedia]);
+  }, [duration, getOutputPosition, playing, scheduleMidiNotes, stopAll, stopMedia]);
 
   const pause = useCallback(() => {
     startRequestRef.current += 1;
@@ -223,17 +231,19 @@ export function usePlayback(
     seekActiveRef.current = false;
     resumeAfterSeekRef.current = false;
     preparingRef.current = false;
-    if (playing) pausedRef.current = Math.min(duration, getTimelineTime());
+    if (playing) pausedRef.current = getOutputPosition();
     stopAll();
     stopMedia();
     elapsedRef.current = pausedRef.current;
     setElapsed(pausedRef.current);
     setPlaying(false);
-  }, [duration, getTimelineTime, playing, stopAll, stopMedia]);
+  }, [getOutputPosition, playing, stopAll, stopMedia]);
 
   const startAt = useCallback((position: number) => {
     const when = getAudioTime() + START_LEAD_SECONDS;
     transportStartAudioTimeRef.current = when - position;
+    elapsedRef.current = position;
+    pausedRef.current = position;
     nextNoteIndexRef.current = findNoteIndex(notesRef.current, position);
     startMedia(when, position);
     scheduleMidiNotes(position);
@@ -358,9 +368,8 @@ export function usePlayback(
 
   const getElapsed = useCallback(() => {
     if (!playing) return elapsedRef.current;
-    // Preserve the pre-roll, including negative time, until audio reaches the start position.
-    return Math.min(duration, getOutputTime() - transportStartAudioTimeRef.current);
-  }, [duration, getOutputTime, playing]);
+    return getOutputPosition();
+  }, [getOutputPosition, playing]);
 
   return { duration, elapsed, getElapsed, loadStatus, pause, playing, reset, seek, toggle };
 }
