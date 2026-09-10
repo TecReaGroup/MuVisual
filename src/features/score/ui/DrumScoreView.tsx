@@ -7,20 +7,27 @@ import { createDrumScore } from '../model/drumScore';
 
 type Props = { notes: Note[]; bpm: number; timeline: MusicalTimeline; getElapsed: () => number; metadata?: SongMetadata | null };
 
+// A quarter-note beat retains its original 128-unit width. Finer rhythms
+// subdivide that space instead of increasing the width of the score.
+const DRUM_QUARTER_WIDTH = 128;
+const DRUM_GUTTER = 88;
+
 export const DrumScoreView = memo(function DrumScoreView({ notes, bpm, timeline, getElapsed, metadata }: Props) {
   const { language } = useI18n();
   const host = useRef<HTMLDivElement>(null);
   const rows = useRef<Array<{ row: HTMLDivElement; cursor: HTMLSpanElement }>>([]);
   const score = useMemo(() => createDrumScore(notes, timeline, metadata), [notes, timeline, metadata]);
+  const layout = useMemo(() => {
+    const stepWidth = DRUM_QUARTER_WIDTH / 8;
+    const measureWidth = score.measureSteps * stepWidth;
+    return { stepWidth, measureWidth, width: DRUM_GUTTER + measureWidth * 2 + 16 };
+  }, [score.measureSteps]);
   useEffect(() => {
     const container = host.current!;
     container.replaceChildren();
     if (!notes.length) return;
-    const stepWidth = 32;
-    const measureWidth = score.measureSteps * stepWidth;
-    const gutter = 88;
-    const width = gutter + measureWidth * 2 + 16;
-    container.style.minWidth = `${width}px`;
+    const { stepWidth, measureWidth, width } = layout;
+    const gutter = DRUM_GUTTER;
     rows.current = [];
     const pending: Array<() => void> = [];
     for (let firstMeasure = 0; firstMeasure < score.measures.length; firstMeasure += 2) {
@@ -45,15 +52,32 @@ export const DrumScoreView = memo(function DrumScoreView({ notes, bpm, timeline,
       const parts = score.measures[measure];
       const voices = parts.map((cells, voiceIndex) => {
         const engraved = cells.map(cell => {
-          const dotted = cell.length === 3 || cell.length === 6;
-          const duration = cell.length === 6 || cell.length === 4 ? '4' : cell.length >= 2 ? '8' : '16';
+          const dotted = cell.length === 3 || cell.length === 6 || cell.length === 12;
+          const duration = cell.length >= 8 ? '4' : cell.length >= 4 ? '8' : cell.length >= 2 ? '16' : '32';
           const note = new StaveNote({ keys: cell.hits.length ? [...new Set(cell.hits.map(hit => hit.key))] : [voiceIndex ? 'd/4' : 'g/5'],
-            duration: duration + (dotted ? 'd' : '') + (cell.hits.length ? '' : 'r'), stem_direction: voiceIndex ? -1 : 1 });
-          if (dotted) Dot.buildAndAttach([note], { all: true });
+            duration: duration + (dotted ? 'd' : '') + (cell.hits.length ? '' : 'r'), stem_direction: voiceIndex ? -1 : 1,
+            glyph_font_scale: 32, stroke_px: 2 });
+          if (dotted) {
+            Dot.buildAndAttach([note], { all: true });
+            note.getModifiers().forEach(modifier => {
+              if (modifier instanceof Dot) modifier.setWidth(4);
+            });
+          }
           if (cell.hits.some(hit => hit.open)) note.addModifier(new Articulation('ah').setPosition(3), 0);
           return note;
         });
-        const beams = Beam.generateBeams(engraved, { groups: [new Fraction(score.groupSteps, 16)], stem_direction: voiceIndex ? -1 : 1 });
+        const beams = Beam.generateBeams(engraved, { groups: [new Fraction(score.groupSteps, 32)], stem_direction: voiceIndex ? -1 : 1 });
+        beams.forEach(beam => {
+          beam.render_options.beam_width = 3;
+          beam.render_options.partial_beam_length = 6;
+          if (!beam.getNotes().some(note => note.getDuration() === '32')) return;
+          // Keep the primary beam across the beat, subdividing dense groups at
+          // actual eighth boundaries, including groups starting after a rest.
+          beam.breakSecondaryAt(beam.getNotes().flatMap((note, index) => {
+            const cell = cells[engraved.indexOf(note as StaveNote)];
+            return (cell.step + cell.length) % 4 === 0 ? [index] : [];
+          }));
+        });
         return { engraved, beams, voice: new Voice({ num_beats: score.numerator, beat_value: score.denominator }).addTickables(engraved) };
       });
       const formatter = new Formatter().joinVoices(voices.map(part => part.voice));
@@ -97,11 +121,11 @@ export const DrumScoreView = memo(function DrumScoreView({ notes, bpm, timeline,
     };
     renderFrame = requestAnimationFrame(renderNextRow);
     return () => { cancelAnimationFrame(renderFrame); rows.current = []; container.replaceChildren(); };
-  }, [score, notes.length]);
+  }, [score, layout, notes.length]);
 
   useEffect(() => {
-    const width = 88 + score.measureSteps * 64 + 16;
-    let scale = 1;
+    const { width, stepWidth } = layout;
+    let scale = (host.current?.clientWidth ?? width) / width;
     let lastX = Number.NaN;
     const observer = new ResizeObserver(() => {
       scale = (rows.current[0]?.row.clientWidth ?? width) / width;
@@ -123,7 +147,7 @@ export const DrumScoreView = memo(function DrumScoreView({ notes, bpm, timeline,
           lastX = Number.NaN;
         }
         const rowSteps = Math.min(2, score.measures.length - rowIndex * 2) * score.measureSteps;
-        const x = (88 + Math.min(rowSteps, step - rowIndex * score.measureSteps * 2) * 32) * scale;
+        const x = (DRUM_GUTTER + Math.min(rowSteps, step - rowIndex * score.measureSteps * 2) * stepWidth) * scale;
         if (x !== lastX) {
           current.cursor.style.transform = `translate3d(${x}px, 0, 0)`;
           lastX = x;
@@ -133,7 +157,7 @@ export const DrumScoreView = memo(function DrumScoreView({ notes, bpm, timeline,
     };
     drawCursor();
     return () => { cancelAnimationFrame(frame); observer.disconnect(); activeRow?.removeAttribute('data-active'); };
-  }, [score, timeline, getElapsed]);
+  }, [score, layout, timeline, getElapsed]);
   const zh = language === 'zh';
   return <div className="score-stage"><div className="score-sheet drum-sheet">
     <div className="score-heading"><div><span>{zh ? 'MIDI 五线谱鼓谱' : 'MIDI DRUM NOTATION'}</span><strong>{zh ? '架子鼓' : 'Drum kit'}</strong></div><div className="score-meta">{score.numerator}/{score.denominator} · {bpm} BPM</div></div>

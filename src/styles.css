@@ -112,10 +112,11 @@ footer { flex:0 0 40px; }
 .view-switch button { width:30px; height:28px; display:grid; place-items:center; border:1px solid #343946; background:#151922; color:#707887; }
 .view-switch button:hover, .view-switch button.selected { color:#171419; border-color:#ff6b5f; background:#ff6b5f; }
 .score-mode { background:#11141b; }
-.drum-sheet { min-width:0; }
+.score-sheet.drum-sheet { min-width:0; width:100%; box-sizing:border-box; }
 .drum-legend { color:#615d55; font-size:12px; line-height:1.8; margin:0 0 16px; }
-.drum-system { position:relative; margin-bottom:20px; }
+.drum-system { position:relative; width:100%; min-width:0; margin-bottom:20px; }
 .drum-system svg { display:block; width:100%; height:auto; }
+.drum-system .vf-stem path { stroke-width:1; }
 .drum-cursor { position:absolute; left:0; top:18%; bottom:25%; width:2px; background:#e35347; will-change:transform; pointer-events:none; display:none; }
 .drum-system[data-active="true"] .drum-cursor { display:block; }
 .score-stage { height:100%; overflow:auto; padding:60px 28px 34px; scrollbar-color:#414754 #11141b; }

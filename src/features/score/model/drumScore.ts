@@ -21,8 +21,8 @@ export function createDrumScore(notes: Note[], timeline: MusicalTimeline, metada
   const signature = /^(\d+)\/(4|8)$/.exec(metadata?.timeSignature ?? '4/4');
   const numerator = signature && +signature[1] > 0 && +signature[1] <= 12 ? +signature[1] : 4;
   const denominator = signature ? +signature[2] : 4;
-  const measureSteps = numerator * 16 / denominator;
-  const groupSteps = denominator === 8 ? (numerator % 3 === 0 ? 6 : 2) : 4;
+  const measureSteps = numerator * 32 / denominator;
+  const groupSteps = denominator === 8 ? (numerator % 3 === 0 ? 12 : 4) : 8;
   // The shared timeline counts detected pulses; metadata gives pulses per bar.
   const pulses = metadata?.beatsPerMeasure && metadata.beatsPerMeasure > 0 ? metadata.beatsPerMeasure : numerator * 4 / denominator;
   const stepsPerPulse = measureSteps / pulses;
@@ -48,9 +48,11 @@ export function createDrumScore(notes: Note[], timeline: MusicalTimeline, metada
           const hits = (onsets.get(measure * measureSteps + step) ?? []).filter(hit => hit.foot === foot);
           let next = step + 1;
           while (next < end && !(onsets.get(measure * measureSteps + next) ?? []).some(hit => hit.foot === foot)) next++;
-          // Do not hide an eighth-note boundary with a dotted value starting on a sixteenth offbeat.
-          const length = [6, 4, 3, 2, 1].find(value => value <= next - step &&
-            (value === 1 || (value === 3 || value === 6 ? step === group : step % value === 0)))!;
+          // Dotted values start at the corresponding metric boundary. In
+          // particular, a dotted sixteenth must not conceal an eighth boundary.
+          const offset = step - group;
+          const length = [12, 8, 6, 4, 3, 2, 1].find(value => value <= next - step &&
+            (value === 12 || value === 6 ? offset === 0 : value === 3 ? offset % 4 === 0 : offset % value === 0))!;
           cells.push({ step, length, hits });
           step += length;
         }
