@@ -116,9 +116,11 @@ export const PianoRoll = memo(function PianoRoll({
 
     const draw = (time: number) => {
       const keyHeight = Math.min(150, height * 0.2);
-      const bottom = height - keyHeight;
+      const keyboardTop = height - keyHeight;
       const pixelsPerSecond = 180;
-      const viewEnd = time + bottom / pixelsPerSecond;
+      const viewEnd = time + keyboardTop / pixelsPerSecond;
+      // Every event reaches the keyboard's upper edge at its audio timeline time.
+      const timeToY = (eventTime: number) => keyboardTop - (eventTime - time) * pixelsPerSecond;
 
       context.fillStyle = '#080a0f';
       context.fillRect(0, 0, width, height);
@@ -127,7 +129,7 @@ export const PianoRoll = memo(function PianoRoll({
       context.beginPath();
       whiteKeys.forEach(([, key]) => {
         context.moveTo(key.x, 0);
-        context.lineTo(key.x, bottom);
+        context.lineTo(key.x, keyboardTop);
       });
       context.stroke();
 
@@ -142,7 +144,7 @@ export const PianoRoll = memo(function PianoRoll({
         context.beginPath();
         gridLines.forEach(line => {
           if (!matches(line)) return;
-          const y = bottom - (line.time - time) * pixelsPerSecond;
+          const y = timeToY(line.time);
           context.moveTo(0, y);
           context.lineTo(width, y);
         });
@@ -163,12 +165,12 @@ export const PianoRoll = memo(function PianoRoll({
         const noteEnd = note.start + note.duration;
         const active = time >= note.start && time < noteEnd;
         if (active) activePitches.add(note.pitch);
-        const yBottom = bottom - (note.start - time) * pixelsPerSecond;
-        const yTop = yBottom - note.duration * pixelsPerSecond;
+        const yBottom = timeToY(note.start);
+        const yTop = timeToY(noteEnd);
         const key = keys[note.pitch];
-        if (!key || yBottom < 0 || yTop > bottom) continue;
+        if (!key || yBottom < 0 || yTop > keyboardTop) continue;
         const top = Math.max(0, yTop);
-        const visibleBottom = Math.min(bottom, yBottom);
+        const visibleBottom = Math.min(keyboardTop, yBottom);
         const barHeight = visibleBottom - top;
         if (barHeight <= 0) continue;
 
@@ -191,21 +193,21 @@ export const PianoRoll = memo(function PianoRoll({
       context.beginPath();
       whiteKeys.forEach(([pitch, key]) => {
         context.fillStyle = activePitches.has(pitch) ? '#ff6b5f' : '#e9ebef';
-        context.fillRect(key.x, bottom, key.w, key.h);
-        context.rect(key.x, bottom, key.w, key.h);
+        context.fillRect(key.x, keyboardTop, key.w, key.h);
+        context.rect(key.x, keyboardTop, key.w, key.h);
       });
       context.strokeStyle = '#15171c';
       context.lineWidth = 1;
       context.stroke();
       blackKeys.forEach(([pitch, key]) => {
         context.fillStyle = activePitches.has(pitch) ? '#ff6b5f' : '#1b1e26';
-        context.fillRect(key.x, bottom, key.w, key.h);
+        context.fillRect(key.x, keyboardTop, key.w, key.h);
       });
       // Draw contact feedback after the keys so black keys cannot obscure white-note onsets.
       context.fillStyle = '#ff6b5f';
       activePitches.forEach(pitch => {
         const key = keys[pitch];
-        if (key) context.fillRect(key.x + 2, bottom, Math.max(1, key.w - 4), 3);
+        if (key) context.fillRect(key.x + 2, keyboardTop, Math.max(1, key.w - 4), 3);
       });
     };
 
@@ -220,7 +222,7 @@ export const PianoRoll = memo(function PianoRoll({
         needsRedraw = false;
       }
       if (frameTime - lastScrollbarUpdateTime >= 100 && scrollbarRef.current) {
-        scrollbarRef.current.value = String(Math.min(playbackTime, duration));
+        scrollbarRef.current.value = String(Math.max(0, Math.min(playbackTime, duration)));
         lastScrollbarUpdateTime = frameTime;
       }
       drawRaf = requestAnimationFrame(loop);

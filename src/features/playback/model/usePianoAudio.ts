@@ -119,7 +119,16 @@ export function usePianoAudio(muted: boolean, volume: number, instrument: Instru
 
   const getAudioTime = useCallback(() => getAudioContext().currentTime, [getAudioContext]);
 
+  const getOutputTime = useCallback(() => {
+    const context = getAudioContext();
+    const { contextTime = 0, performanceTime = 0 } = context.getOutputTimestamp?.() ?? {};
+    // Output timestamps include device buffering; do not subtract latency again.
+    return contextTime > 0 && performanceTime > 0
+      ? contextTime + (performance.now() - performanceTime) / 1000
+      : context.currentTime - context.baseLatency - (context.outputLatency || 0);
+  }, [getAudioContext]);
+
   useEffect(() => stopAll, [instrument, stopAll]);
 
-  return { getAudioContext, getAudioTime, loadStatus, loadTimbre, playNote, prepare, stopAll };
+  return { getAudioContext, getAudioTime, getOutputTime, loadStatus, loadTimbre, playNote, prepare, stopAll };
 }

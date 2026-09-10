@@ -66,7 +66,7 @@ export function usePlayback(
   const mediaGainsRef = useRef<MediaGains>({});
   const mediaLoadRef = useRef<Promise<void>>(Promise.resolve());
   const midiMuted = muted || audioSource !== 'midi';
-  const { getAudioContext, getAudioTime, loadStatus: timbreLoadStatus, loadTimbre, playNote, prepare, stopAll } = usePianoAudio(midiMuted, volume, instrument);
+  const { getAudioContext, getAudioTime, getOutputTime, loadStatus: timbreLoadStatus, loadTimbre, playNote, prepare, stopAll } = usePianoAudio(midiMuted, volume, instrument);
   const sortedNotes = useMemo(() => [...notes].sort((first, second) => first.start - second.start), [notes]);
   const notesRef = useRef(sortedNotes);
   notesRef.current = sortedNotes;
@@ -357,8 +357,10 @@ export function usePlayback(
   }, [stopMedia]);
 
   const getElapsed = useCallback(() => {
-    return playing ? getTimelineTime() : elapsedRef.current;
-  }, [getTimelineTime, playing]);
+    if (!playing) return elapsedRef.current;
+    // Preserve the pre-roll, including negative time, until audio reaches the start position.
+    return Math.min(duration, getOutputTime() - transportStartAudioTimeRef.current);
+  }, [duration, getOutputTime, playing]);
 
   return { duration, elapsed, getElapsed, loadStatus, pause, playing, reset, seek, toggle };
 }
