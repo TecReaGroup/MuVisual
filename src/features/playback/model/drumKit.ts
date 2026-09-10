@@ -14,11 +14,12 @@ const GM_DRUM_SAMPLES = [
   'conga/h', 'conga/l', 'cowbell', 'cowbell',
 ] as const;
 
+// LM-2 peaks are already near full scale; balance body and cymbal sustain, not peaks.
 const DRUM_FAMILY_TRIM_DB = {
-  'kick/alt': 0, kick: 0, 'snare/m': 0, 'snare/h': 0, clap: -3,
+  'kick/alt': 3, kick: 4.5, 'snare/m': 0, 'snare/h': 0, clap: -3,
   'stick/h': -3, 'stick/m': -3, 'stick/l': -3,
   'tom/ll': -2, 'tom/l': -2, 'tom/m': -2, 'tom/h': -2, 'tom/hh': -2,
-  hhclosed: -6, 'hhclosed/short': -8, hhopen: -5, crash: -6, ride: -5,
+  hhclosed: -6, 'hhclosed/short': -8, hhopen: -7, crash: -8, ride: -6,
   cowbell: -5, tambourine: -6, cabasa: -6,
   'conga/hh': -3, 'conga/h': -3, 'conga/m': -3, 'conga/l': -3, 'conga/ll': -3,
 } as const satisfies Record<typeof GM_DRUM_SAMPLES[number], number>;
@@ -64,8 +65,10 @@ export async function loadDrumKit(context: AudioContext, destination: AudioNode,
       // Choke at the scheduled hit time, not when the lookahead queues it.
       if (note === 42 || note === 44) drums.stop({ stopId: 'hhopen', time });
       const trimDb = DRUM_FAMILY_TRIM_DB[sample];
+      // smplr squares velocity: this gives drums a gentler 1.5-power gain curve.
+      const drumVelocity = 127 * (velocity / 127) ** 0.75;
       // MIDI note duration does not truncate percussion's natural tail.
-      return drums.start({ note: sample, time, velocity, onEnded, gainOffset: 10 ** (trimDb / 20) });
+      return drums.start({ note: sample, time, velocity: drumVelocity, onEnded, gainOffset: 10 ** (trimDb / 20) });
     },
   };
 }
