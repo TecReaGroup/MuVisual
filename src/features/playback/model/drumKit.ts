@@ -2,39 +2,38 @@ import { DrumMachine, type DrumMachineOptions, type Storage } from 'smplr';
 
 type DrumHit = { note: number; time: number; velocity: number; onEnded: () => void };
 
-// GM percussion 35-81. Missing TR-808 voices use the closest available family.
+// GM percussion 35-81. Missing LM-2 voices use the closest available family.
 const GM_DRUM_SAMPLES = [
-  'kick', 'kick', 'rimshot', 'snare', 'clap', 'snare',
-  'tom-low', 'hihat-close', 'tom-low', 'hihat-close', 'mid-tom', 'hihat-open',
-  'mid-tom', 'tom-hi', 'cymbal', 'tom-hi', 'cymbal', 'cymbal', 'cowbell',
-  'hihat-close', 'cymbal', 'cowbell', 'cymbal', 'clave', 'cymbal',
-  'conga-hi', 'conga-low', 'conga-hi', 'conga-hi', 'conga-low',
-  'tom-hi', 'tom-low', 'cowbell', 'cowbell', 'maraca', 'maraca',
-  'clave', 'clave', 'maraca', 'maraca', 'clave', 'clave', 'clave',
-  'conga-hi', 'conga-low', 'cowbell', 'cowbell',
+  'kick/alt', 'kick', 'stick/m', 'snare/m', 'clap', 'snare/h',
+  'tom/ll', 'hhclosed', 'tom/l', 'hhclosed/short', 'tom/m', 'hhopen',
+  'tom/m', 'tom/h', 'crash', 'tom/hh', 'ride', 'crash', 'cowbell',
+  'tambourine', 'crash', 'cowbell', 'crash', 'stick/h', 'ride',
+  'conga/hh', 'conga/ll', 'conga/h', 'conga/m', 'conga/l',
+  'tom/h', 'tom/l', 'cowbell', 'cowbell', 'cabasa', 'cabasa',
+  'stick/h', 'stick/l', 'cabasa', 'cabasa', 'stick/m', 'stick/h', 'stick/l',
+  'conga/h', 'conga/l', 'cowbell', 'cowbell',
 ] as const;
 
 const DRUM_FAMILY_TRIM_DB = {
-  kick: 0, snare: 0, rimshot: -3, clap: -3,
-  'tom-low': -2, 'mid-tom': -2, 'tom-hi': -2,
-  'hihat-close': -6, 'hihat-open': -5, cymbal: -6,
-  cowbell: -5, clave: -6, maraca: -6, 'conga-hi': -3, 'conga-low': -3,
+  'kick/alt': 0, kick: 0, 'snare/m': 0, 'snare/h': 0, clap: -3,
+  'stick/h': -3, 'stick/m': -3, 'stick/l': -3,
+  'tom/ll': -2, 'tom/l': -2, 'tom/m': -2, 'tom/h': -2, 'tom/hh': -2,
+  hhclosed: -6, 'hhclosed/short': -8, hhopen: -5, crash: -6, ride: -5,
+  cowbell: -5, tambourine: -6, cabasa: -6,
+  'conga/hh': -3, 'conga/h': -3, 'conga/m': -3, 'conga/l': -3, 'conga/ll': -3,
 } as const satisfies Record<typeof GM_DRUM_SAMPLES[number], number>;
 
-// Pedal hi-hat and ride need distinct levels even when they share an 808 sample.
-const DRUM_NOTE_TRIM_DB: Partial<Record<number, number>> = { 44: -8, 51: -5, 59: -5 };
-
 export async function loadDrumKit(context: AudioContext, destination: AudioNode, storage: Storage) {
-  const baseUrl = `${import.meta.env.BASE_URL}sample-library/TR-808-v1`;
+  const baseUrl = `${import.meta.env.BASE_URL}sample-library/LM-2-v1`;
   const manifest: unknown = await (await storage.fetch(`${baseUrl}/dm.json`)).json();
   if (!manifest || typeof manifest !== 'object' || !('samples' in manifest)
     || !Array.isArray(manifest.samples) || !manifest.samples.length
     || !manifest.samples.every((sample: unknown) => typeof sample === 'string')) {
-    throw new Error('Invalid TR-808 sample manifest');
+    throw new Error('Invalid LM-2 sample manifest');
   }
   // Supplying the manifest avoids smplr's unhandled secondary promise on fetch failure.
   const instrument: Exclude<DrumMachineOptions['instrument'], string | undefined> = {
-    baseUrl, name: 'TR-808', samples: manifest.samples, sampleNames: [],
+    baseUrl, name: 'LM-2', samples: manifest.samples, sampleNames: [],
     nameToSample: {}, sampleNameVariations: {},
   };
   for (const sample of instrument.samples) {
@@ -46,7 +45,7 @@ export async function loadDrumKit(context: AudioContext, destination: AudioNode,
     (instrument.sampleNameVariations[family] ??= []).push(name);
   }
   if (GM_DRUM_SAMPLES.some(name => !instrument.nameToSample[name])) {
-    throw new Error('TR-808 manifest is missing required percussion samples');
+    throw new Error('LM-2 manifest is missing required percussion samples');
   }
   const drums = new DrumMachine(context, { destination, storage, disableScheduler: true, instrument });
   try {
@@ -63,8 +62,8 @@ export async function loadDrumKit(context: AudioContext, destination: AudioNode,
         return () => undefined;
       }
       // Choke at the scheduled hit time, not when the lookahead queues it.
-      if (note === 42 || note === 44) drums.stop({ stopId: 'hihat-open', time });
-      const trimDb = DRUM_NOTE_TRIM_DB[note] ?? DRUM_FAMILY_TRIM_DB[sample];
+      if (note === 42 || note === 44) drums.stop({ stopId: 'hhopen', time });
+      const trimDb = DRUM_FAMILY_TRIM_DB[sample];
       // MIDI note duration does not truncate percussion's natural tail.
       return drums.start({ note: sample, time, velocity, onEnded, gainOffset: 10 ** (trimDb / 20) });
     },

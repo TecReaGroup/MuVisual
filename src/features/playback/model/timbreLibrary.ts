@@ -8,7 +8,7 @@ const TIMBRE_SOURCES = {
   guitar: 'electric_guitar_clean',
   other: 'string_ensemble_1',
   vocals: 'string_ensemble_1',
-  drums: 'TR-808',
+  drums: 'LM-2',
 } as const satisfies Record<Instrument, string>;
 
 type TimbreSource = typeof TIMBRE_SOURCES[Instrument];
@@ -21,7 +21,7 @@ const TIMBRE_TRIM_DB = {
   electric_bass_finger: 4.5,
   electric_guitar_clean: 0,
   string_ensemble_1: -2,
-} as const satisfies Record<Exclude<TimbreSource, 'TR-808'>, number>;
+} as const satisfies Record<Exclude<TimbreSource, 'LM-2'>, number>;
 
 async function validateSampleResponse(response: Response, url: string) {
   if (!response.ok) throw new Error(`Timbre request failed (${response.status}): ${url}`);
@@ -80,7 +80,7 @@ export function createTimbreLibrary(context: AudioContext, destination: AudioNod
   const pending = new Map<TimbreSource, Promise<TimbreDefinition>>();
 
   async function loadSource(source: TimbreSource): Promise<TimbreDefinition> {
-    if (source === 'TR-808') return loadDrumKit(context, destination, sampleStorage);
+    if (source === 'LM-2') return loadDrumKit(context, destination, sampleStorage);
     const options = { destination, storage: sampleStorage, disableScheduler: true };
     const soundfont = new Soundfont(context, {
       ...options,
