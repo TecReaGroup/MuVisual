@@ -6,6 +6,9 @@ import { useI18n } from '../../../shared/i18n';
 
 type PianoKey = { x: number; w: number; h: number; black: boolean };
 
+// Short percussion notes need visible contact feedback even between animation frames.
+const MIN_KEY_HIGHLIGHT_SECONDS = 0.08;
+
 type PianoRollProps = {
   duration: number;
   getElapsed: () => number;
@@ -158,12 +161,12 @@ export const PianoRoll = memo(function PianoRoll({
       let currentFont = '';
       context.textAlign = 'center';
       context.textBaseline = 'bottom';
-      const firstVisible = lowerBound(notesRef.current, time - maxNoteDuration, true);
+      const firstVisible = lowerBound(notesRef.current, time - Math.max(maxNoteDuration, MIN_KEY_HIGHLIGHT_SECONDS), true);
       const afterLastVisible = lowerBound(notesRef.current, viewEnd, false);
       for (let index = firstVisible; index < afterLastVisible; index += 1) {
         const note = notesRef.current[index];
         const noteEnd = note.start + note.duration;
-        const active = time >= note.start && time < noteEnd;
+        const active = time >= note.start && time < note.start + Math.max(note.duration, MIN_KEY_HIGHLIGHT_SECONDS);
         if (active) activePitches.add(note.pitch);
         const yBottom = timeToY(note.start);
         const yTop = timeToY(noteEnd);
