@@ -116,7 +116,7 @@ footer { flex:0 0 40px; }
 .drum-legend { color:#615d55; font-size:12px; line-height:1.8; margin:0 0 16px; }
 .drum-system { position:relative; margin-bottom:20px; }
 .drum-system svg { display:block; width:100%; height:auto; }
-.drum-cursor { stroke:#e35347; stroke-width:2; vector-effect:non-scaling-stroke; pointer-events:none; display:none; }
+.drum-cursor { position:absolute; left:0; top:18%; bottom:25%; width:2px; background:#e35347; will-change:transform; pointer-events:none; display:none; }
 .drum-system[data-active="true"] .drum-cursor { display:block; }
 .score-stage { height:100%; overflow:auto; padding:60px 28px 34px; scrollbar-color:#414754 #11141b; }
 .score-sheet { min-width:880px; max-width:1180px; margin:0 auto; color:#171a20; background:#f1eee7; box-shadow:0 14px 45px rgba(0,0,0,.28); padding:30px 36px 54px; }

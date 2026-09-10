@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useRef } from 'react';
-import { Articulation, Beam, Dot, Formatter, Fraction, Renderer, Stave, StaveNote, Voice } from 'vexflow';
+import { Articulation, Barline, Beam, Dot, Formatter, Fraction, Renderer, Stave, StaveNote, Voice } from 'vexflow';
 import type { Note, SongMetadata } from '../../../entities/music/model/types';
 import type { MusicalTimeline } from '../../../entities/music/lib/musicalTimeline';
 import { useI18n } from '../../../shared/i18n';
@@ -10,13 +10,39 @@ type Props = { notes: Note[]; bpm: number; timeline: MusicalTimeline; getElapsed
 export const DrumScoreView = memo(function DrumScoreView({ notes, bpm, timeline, getElapsed, metadata }: Props) {
   const { language } = useI18n();
   const host = useRef<HTMLDivElement>(null);
+  const rows = useRef<Array<{ row: HTMLDivElement; cursor: HTMLSpanElement }>>([]);
   const score = useMemo(() => createDrumScore(notes, timeline, metadata), [notes, timeline, metadata]);
   useEffect(() => {
     const container = host.current!;
     container.replaceChildren();
     if (!notes.length) return;
-    const positions: Array<{ step: number; x: number; row: HTMLElement; cursor: SVGLineElement }> = [];
-    const measures = score.measures.map(parts => {
+    const stepWidth = 32;
+    const measureWidth = score.measureSteps * stepWidth;
+    const gutter = 88;
+    const width = gutter + measureWidth * 2 + 16;
+    container.style.minWidth = `${width}px`;
+    rows.current = [];
+    const pending: Array<() => void> = [];
+    for (let firstMeasure = 0; firstMeasure < score.measures.length; firstMeasure += 2) {
+      const row = document.createElement('div');
+      row.className = 'drum-system';
+      row.style.aspectRatio = `${width} / 210`;
+      const engraving = document.createElement('div');
+      row.append(engraving);
+      const cursor = document.createElement('span');
+      cursor.className = 'drum-cursor';
+      cursor.setAttribute('aria-hidden', 'true');
+      row.append(cursor);
+      container.append(row);
+      rows.current.push({ row, cursor });
+      pending.push(() => {
+      const renderer = new Renderer(engraving, Renderer.Backends.SVG);
+      renderer.resize(width, 210);
+      engraving.querySelector('svg')!.setAttribute('viewBox', `0 0 ${width} 210`);
+      const context = renderer.getContext();
+      context.setFillStyle('#171a20').setStrokeStyle('#171a20');
+      for (let measure = firstMeasure; measure < Math.min(firstMeasure + 2, score.measures.length); measure++) {
+      const parts = score.measures[measure];
       const voices = parts.map((cells, voiceIndex) => {
         const engraved = cells.map(cell => {
           const dotted = cell.length === 3 || cell.length === 6;
@@ -31,75 +57,83 @@ export const DrumScoreView = memo(function DrumScoreView({ notes, bpm, timeline,
         return { engraved, beams, voice: new Voice({ num_beats: score.numerator, beat_value: score.denominator }).addTickables(engraved) };
       });
       const formatter = new Formatter().joinVoices(voices.map(part => part.voice));
-      const minimumWidth = formatter.preCalculateMinTotalWidth(voices.map(part => part.voice)) + 110;
-      return { parts, voices, formatter, minimumWidth };
-    });
-    // A shared measure width keeps barlines aligned between systems. SVG owns
-    // both notation and cursor coordinates, including when the sheet is scaled.
-    const measureWidth = Math.max(440, ...measures.map(measure => measure.minimumWidth));
-    const width = measureWidth * 2 + 16;
-    container.style.minWidth = `${width}px`;
-    for (let firstMeasure = 0; firstMeasure < measures.length; firstMeasure += 2) {
-      const row = document.createElement('div');
-      row.className = 'drum-system';
-      container.append(row);
-      const renderer = new Renderer(row, Renderer.Backends.SVG);
-      renderer.resize(width, 210);
-      const svg = row.querySelector('svg')!;
-      svg.setAttribute('viewBox', `0 0 ${width} 210`);
-      const context = renderer.getContext();
-      context.setFillStyle('#171a20').setStrokeStyle('#171a20');
-      const cursor = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-      cursor.setAttribute('class', 'drum-cursor');
-      cursor.setAttribute('y1', '38');
-      cursor.setAttribute('y2', '158');
-      cursor.setAttribute('aria-hidden', 'true');
-      for (let measure = firstMeasure; measure < Math.min(firstMeasure + 2, measures.length); measure++) {
-        const { parts, voices, formatter } = measures[measure];
-        const left = 8 + (measure - firstMeasure) * measureWidth;
-        const stave = new Stave(left, 45, measureWidth);
+        const left = gutter + (measure - firstMeasure) * measureWidth;
+        // Put barlines halfway between grid slots, leaving the downbeat clear.
+        const staveLeft = measure === firstMeasure ? 8 : left - stepWidth / 2;
+        const staveRight = left + measureWidth - stepWidth / 2;
+        const stave = new Stave(staveLeft, 45, staveRight - staveLeft);
+        if (measure !== firstMeasure) stave.setBegBarType(Barline.type.NONE);
         if (measure === firstMeasure) stave.addClef('percussion');
         if (measure === 0) stave.addTimeSignature(`${score.numerator}/${score.denominator}`);
-        stave.setNoteStartX(left + 80);
+        stave.setNoteStartX(left);
         stave.setContext(context).draw();
         context.setFont('sans-serif', 11).fillText(String(measure + 1).padStart(2, '0'), left + 4, 24);
+        // formatToStave only derives a width; it does not attach the stave.
+        // Absolute note coordinates must include the stave offset before placement.
+        voices.forEach(part => part.voice.setStave(stave).preFormat());
         formatter.formatToStave(voices.map(part => part.voice), stave);
-        voices.forEach(part => { part.voice.draw(context, stave); part.beams.forEach(beam => beam.setContext(context).draw()); });
-        const anchors = new Map<number, number>();
-        voices.forEach((part, index) => part.engraved.forEach((note, cell) => {
-          // Tick positions align voices; the glyph centre locates the playback line.
-          const step = parts[index][cell].step;
-          if (!anchors.has(step)) anchors.set(step, note.getAbsoluteX() + note.getGlyphWidth() / 2);
+        // Keep VexFlow's vertical collision handling, but place shared tick
+        // contexts on a uniform time axis before beams are post-formatted.
+        const placed = new Set<object>();
+        voices.forEach((part, voiceIndex) => part.engraved.forEach((note, cellIndex) => {
+          const tick = note.getTickContext();
+          if (placed.has(tick)) return;
+          placed.add(tick);
+          const target = left + parts[voiceIndex][cellIndex].step * stepWidth;
+          tick.setX(tick.getX() + target - note.getAbsoluteX() - note.getGlyphWidth() / 2);
         }));
-        [...anchors].sort((a, b) => a[0] - b[0]).forEach(([step, x]) => positions.push({ step: measure * score.measureSteps + step, x, row, cursor }));
-        positions.push({ step: (measure + 1) * score.measureSteps, x: left + measureWidth, row, cursor });
+        voices.forEach(part => {
+          part.beams.forEach(beam => { beam.postFormatted = false; beam.postFormat(); });
+          part.voice.draw(context);
+          part.beams.forEach(beam => beam.setContext(context).draw());
+        });
       }
-      svg.append(cursor);
+      });
     }
+    let renderFrame = 0;
+    const renderNextRow = () => {
+      pending.shift()?.();
+      if (pending.length) renderFrame = requestAnimationFrame(renderNextRow);
+    };
+    renderFrame = requestAnimationFrame(renderNextRow);
+    return () => { cancelAnimationFrame(renderFrame); rows.current = []; container.replaceChildren(); };
+  }, [score, notes.length]);
+
+  useEffect(() => {
+    const width = 88 + score.measureSteps * 64 + 16;
+    let scale = 1;
+    let lastX = Number.NaN;
+    const observer = new ResizeObserver(() => {
+      scale = (rows.current[0]?.row.clientWidth ?? width) / width;
+      lastX = Number.NaN;
+    });
+    if (host.current) observer.observe(host.current);
     let frame = 0;
     let activeRow: HTMLElement | undefined;
     const drawCursor = () => {
       const step = Math.max(0, timeline.positionAt(getElapsed()) * score.stepsPerPulse);
-      let low = 0, high = positions.length;
-      while (low < high) { const mid = (low + high) >>> 1; if (positions[mid].step <= step) low = mid + 1; else high = mid; }
-      const current = positions[Math.max(0, low - 1)];
-      const next = positions[low];
+      const rowIndex = Math.min(rows.current.length - 1, Math.floor(step / (score.measureSteps * 2)));
+      const current = rows.current[rowIndex];
       if (current) {
         if (activeRow !== current.row) {
           activeRow?.removeAttribute('data-active');
           activeRow = current.row;
           activeRow.setAttribute('data-active', 'true');
-          activeRow.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+          activeRow.scrollIntoView({ behavior: 'auto', block: 'nearest', inline: 'nearest' });
+          lastX = Number.NaN;
         }
-        const x = next && next.row === current.row ? current.x + (next.x - current.x) * (step - current.step) / (next.step - current.step) : current.x;
-        current.cursor.setAttribute('x1', String(x));
-        current.cursor.setAttribute('x2', String(x));
+        const rowSteps = Math.min(2, score.measures.length - rowIndex * 2) * score.measureSteps;
+        const x = (88 + Math.min(rowSteps, step - rowIndex * score.measureSteps * 2) * 32) * scale;
+        if (x !== lastX) {
+          current.cursor.style.transform = `translate3d(${x}px, 0, 0)`;
+          lastX = x;
+        }
       }
       frame = requestAnimationFrame(drawCursor);
     };
     drawCursor();
-    return () => { cancelAnimationFrame(frame); container.replaceChildren(); };
-  }, [score, timeline, getElapsed, notes.length]);
+    return () => { cancelAnimationFrame(frame); observer.disconnect(); activeRow?.removeAttribute('data-active'); };
+  }, [score, timeline, getElapsed]);
   const zh = language === 'zh';
   return <div className="score-stage"><div className="score-sheet drum-sheet">
     <div className="score-heading"><div><span>{zh ? 'MIDI 五线谱鼓谱' : 'MIDI DRUM NOTATION'}</span><strong>{zh ? '架子鼓' : 'Drum kit'}</strong></div><div className="score-meta">{score.numerator}/{score.denominator} · {bpm} BPM</div></div>
