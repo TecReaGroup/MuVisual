@@ -175,11 +175,11 @@ export const JianpuView = memo(function JianpuView({ bpm, getElapsed, notes, key
             {(['high', 'low'] as const).map(voice => <div className="score-row" key={voice}>
               {system.map(measure => <div className="score-measure" key={measure} style={{ gridTemplateColumns: `repeat(${beatsPerMeasure}, minmax(0, 1fr))` }}>
                 <span className="measure-number">{String(measure + 1).padStart(2, '0')}</span>
-                {chords.length > 0 && <div className="score-chords" aria-hidden={voice === 'low'}>
-                  {voice === 'high' && measureChords[measure].map((change, index) => <span
+                {voice === 'high' && chords.length > 0 && <div className="score-chords" style={{ gridTemplateColumns: `repeat(${beatsPerMeasure}, minmax(0, 1fr))` }}>
+                  {measureChords[measure].map((change, index) => <span
                     className="score-chord"
                     key={index}
-                    style={{ gridColumn: Math.floor(change.beat) + 1, left: `calc(${(change.beat % 1) * 100}% + ${(change.beat % 1) * 8}px)` }}
+                    style={{ gridColumn: Math.floor(change.beat) + 1 }}
                   >{change.chord}</span>)}
                 </div>}
                 {Array.from({ length: beatsPerMeasure }, (_, beat) => <Beat key={beat} beat={measure * beatsPerMeasure + beat} voice={voice} notes={quantized} keySignature={keySignature} />)}

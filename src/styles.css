@@ -119,14 +119,15 @@ footer { flex:0 0 40px; }
 .score-heading strong { display:block; margin-top:7px; font:600 22px 'Space Grotesk'; text-transform:uppercase; letter-spacing:0; }
 .score-meta { white-space:nowrap; }
 .score-system { position:relative; display:grid; grid-template-columns:42px 1fr; margin-bottom:30px; }
+.score-system:has(.score-chords) { padding-top:24px; }
 .staff-labels { display:flex; flex-direction:column; justify-content:space-around; padding:18px 0 16px; line-height:1; }
 .score-rows { position:relative; display:grid; grid-template-rows:1fr 1fr; border-top:1px solid #b8b0a3; border-bottom:1px solid #b8b0a3; }
 .score-row { display:flex; min-height:82px; }
 .score-row + .score-row { border-top:1px solid #d2ccc1; }
 .score-measure { position:relative; flex:1 1 0; min-width:0; display:grid; column-gap:8px; align-items:center; padding:18px 14px 10px; border-left:2px solid #5c554b; }
 .score-measure:last-child { border-right:2px solid #5c554b; }
-.score-chords { grid-column:1 / -1; display:grid; grid-template-columns:subgrid; min-height:24px; align-items:start; }
-.score-chord { position:relative; grid-row:1; width:max-content; color:#615d55; font:500 12px 'DM Mono'; line-height:18px; white-space:nowrap; }
+.score-chords { position:absolute; top:-24px; left:14px; right:14px; display:grid; column-gap:8px; min-height:18px; align-items:start; justify-items:center; }
+.score-chord { color:#615d55; font:500 12px 'DM Mono'; line-height:18px; white-space:nowrap; }
 .measure-number { position:absolute; top:3px; left:8px; color:#9e968a; font:9px 'DM Mono'; }
 .score-beat { position:relative; min-width:0; height:50px; }
 .score-slots { position:absolute; inset:0; display:grid; }
