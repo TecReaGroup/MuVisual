@@ -92,7 +92,7 @@ export function StudioPage({ initialMidi, onBack }: StudioPageProps) {
   const handleInstrumentChange = (nextInstrument: Instrument) => {
     const next = instruments[nextInstrument];
     if (!next || nextInstrument === instrument) return;
-    playback.reset();
+    playback.pause();
     setMidiErrorInstrument(null);
     setInstrument(nextInstrument);
     setAudioUrls(current => ({ original: current.original, instrument: next.audioUrl }));
