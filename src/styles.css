@@ -121,6 +121,7 @@ footer { flex:0 0 40px; }
 .drum-system[data-active="true"] .drum-cursor { display:block; }
 .score-stage { height:100%; overflow:auto; padding:60px 28px 34px; scrollbar-color:#414754 #11141b; }
 .score-sheet { min-width:880px; max-width:1180px; margin:0 auto; color:#171a20; background:#f1eee7; box-shadow:0 14px 45px rgba(0,0,0,.28); padding:30px 36px 54px; }
+.score-sheet.jianpu-sheet { zoom:.8; box-sizing:border-box; width:100%; min-width:calc(var(--measures-per-system) * var(--measure-min-width) + 72px); max-width:1600px; }
 .score-heading { display:flex; justify-content:space-between; align-items:flex-end; border-bottom:1px solid #c9c3b7; padding-bottom:18px; margin-bottom:28px; }
 .score-heading span, .score-meta { color:#7f786c; font:10px 'DM Mono'; letter-spacing:.12em; }
 .score-heading strong { display:block; margin-top:7px; font:600 22px 'Space Grotesk'; text-transform:uppercase; letter-spacing:0; }
@@ -128,10 +129,10 @@ footer { flex:0 0 40px; }
 .score-system { position:relative; margin-bottom:30px; }
 .score-system:has(.score-chords) { padding-top:24px; }
 .score-rows { position:relative; border-top:1px solid #b8b0a3; border-bottom:1px solid #b8b0a3; }
-.score-row { display:flex; min-height:82px; }
-.score-measure { position:relative; flex:1 1 0; min-width:0; display:grid; column-gap:8px; align-items:center; padding:18px 14px 10px; border-left:2px solid #5c554b; }
+.score-row { display:grid; grid-template-columns:repeat(var(--measures-per-system), minmax(0, 1fr)); min-height:82px; }
+.score-measure { position:relative; min-width:0; display:grid; grid-template-columns:repeat(var(--beats-per-measure), minmax(0, 1fr)); column-gap:4px; align-items:center; padding:18px 10px 10px; border-left:2px solid #5c554b; }
 .score-measure:last-child { border-right:2px solid #5c554b; }
-.score-chords { position:absolute; top:-24px; left:14px; right:14px; display:grid; column-gap:8px; min-height:18px; align-items:start; justify-items:center; }
+.score-chords { position:absolute; top:-24px; left:10px; right:10px; display:grid; grid-template-columns:repeat(var(--beats-per-measure), minmax(0, 1fr)); column-gap:4px; min-height:18px; align-items:start; justify-items:center; }
 .score-chord { color:#615d55; font:500 12px 'DM Mono'; line-height:18px; white-space:nowrap; }
 .measure-number { position:absolute; top:3px; left:8px; color:#9e968a; font:9px 'DM Mono'; }
 .score-beat { position:relative; min-width:0; height:50px; }

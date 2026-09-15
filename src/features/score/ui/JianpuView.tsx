@@ -1,10 +1,13 @@
 import { memo, useEffect, useMemo, useRef } from 'react';
+import type { CSSProperties } from 'react';
 import { numberForPitch } from '../../../entities/music/lib/pitch';
 import type { MusicalTimeline } from '../../../entities/music/lib/musicalTimeline';
 import type { Note, SongMetadata } from '../../../entities/music/model/types';
 import { useI18n } from '../../../shared/i18n';
 
 type QuantizedNotes = Map<number, Note>;
+const MEASURES_PER_SYSTEM = 4;
+const MIN_BEAT_WIDTH = 72;
 
 function quantizeNotes(notes: Note[], timeline: MusicalTimeline) {
   const melody: QuantizedNotes = new Map();
@@ -69,7 +72,6 @@ type JianpuViewProps = {
 
 export const JianpuView = memo(function JianpuView({ bpm, getElapsed, notes, keySignature, metadata, timeline }: JianpuViewProps) {
   const { t } = useI18n();
-  const scrollRef = useRef<HTMLDivElement>(null);
   const systemRefs = useRef<Array<HTMLElement | null>>([]);
   const rowRefs = useRef<Array<HTMLDivElement | null>>([]);
   const cursorRefs = useRef<Array<HTMLSpanElement | null>>([]);
@@ -108,8 +110,20 @@ export const JianpuView = memo(function JianpuView({ bpm, getElapsed, notes, key
       return Array.from(beatChords, ([beat, labels]) => ({ beat, chord: labels.join(' / ') }));
     });
   }, [beatsPerMeasure, chords, totalMeasures]);
-  const systems = useMemo(() => Array.from({ length: Math.ceil(totalMeasures / 2) }, (_, system) =>
-    [system * 2, system * 2 + 1].filter(measure => measure < totalMeasures)), [totalMeasures]);
+  const systems = useMemo(() => Array.from({ length: Math.ceil(totalMeasures / MEASURES_PER_SYSTEM) }, (_, systemIndex) => {
+    const firstMeasure = systemIndex * MEASURES_PER_SYSTEM;
+    const measures = Array.from({ length: Math.min(MEASURES_PER_SYSTEM, totalMeasures - firstMeasure) }, (_, index) => firstMeasure + index);
+    return {
+      measures,
+      startBeat: firstMeasure * beatsPerMeasure,
+      endBeat: (firstMeasure + measures.length) * beatsPerMeasure,
+    };
+  }), [beatsPerMeasure, totalMeasures]);
+  const sheetStyle = {
+    '--measures-per-system': MEASURES_PER_SYSTEM,
+    '--beats-per-measure': beatsPerMeasure,
+    '--measure-min-width': `${beatsPerMeasure * MIN_BEAT_WIDTH + 24}px`,
+  } as CSSProperties;
 
   useEffect(() => {
     let animationFrame = 0;
@@ -126,7 +140,8 @@ export const JianpuView = memo(function JianpuView({ bpm, getElapsed, notes, key
 
     const drawCursor = () => {
       const currentBeat = Math.max(0, timeline.positionAt(getElapsed()));
-      const nextSystemIndex = Math.max(0, Math.min(systems.length - 1, Math.floor(currentBeat / (beatsPerMeasure * 2))));
+      const upcomingSystemIndex = systems.findIndex(system => currentBeat < system.endBeat);
+      const nextSystemIndex = upcomingSystemIndex < 0 ? systems.length - 1 : upcomingSystemIndex;
 
       if (nextSystemIndex !== activeSystemIndex) {
         if (activeSystemIndex >= 0) {
@@ -142,9 +157,9 @@ export const JianpuView = memo(function JianpuView({ bpm, getElapsed, notes, key
       const system = systems[activeSystemIndex];
       const cursor = cursorRefs.current[activeSystemIndex];
       if (system && cursor) {
-        const systemStartBeat = system[0] * beatsPerMeasure;
-        const systemBeats = system.length * beatsPerMeasure;
-        const cursorPosition = Math.max(0, Math.min(1, (currentBeat - systemStartBeat) / systemBeats));
+        // The final system keeps four columns even when it contains fewer measures.
+        const systemBeats = MEASURES_PER_SYSTEM * beatsPerMeasure;
+        const cursorPosition = Math.max(0, Math.min(system.endBeat - system.startBeat, currentBeat - system.startBeat)) / systemBeats;
         const cursorX = cursorPosition * systemWidths[activeSystemIndex] - 1;
         if (cursorX !== lastCursorX) {
           cursor.style.transform = `translate3d(${cursorX}px, 0, 0)`;
@@ -161,8 +176,8 @@ export const JianpuView = memo(function JianpuView({ bpm, getElapsed, notes, key
     };
   }, [beatsPerMeasure, getElapsed, systems, timeline]);
 
-  return <div className="score-stage" ref={scrollRef} data-tempo={bpm}>
-    <div className="score-sheet">
+  return <div className="score-stage" data-tempo={bpm}>
+    <div className="score-sheet jianpu-sheet" style={sheetStyle}>
       <div className="score-heading">
         <div><span>{t('score.title')}</span><strong>1 = {keySignature.replace(':', ' · ')}</strong></div>
         <div className="score-meta">{metadata?.timeSignature ?? '4/4'} · {t('score.meta')}</div>
@@ -170,15 +185,15 @@ export const JianpuView = memo(function JianpuView({ bpm, getElapsed, notes, key
       {systems.map((system, systemIndex) => {
         return <section
           className="score-system"
-          key={system[0]}
+          key={system.startBeat}
           data-active-system="false"
           ref={element => { systemRefs.current[systemIndex] = element; }}
         >
           <div className="score-rows" ref={element => { rowRefs.current[systemIndex] = element; }}>
             <div className="score-row">
-              {system.map(measure => <div className="score-measure" key={measure} style={{ gridTemplateColumns: `repeat(${beatsPerMeasure}, minmax(0, 1fr))` }}>
+              {system.measures.map(measure => <div className="score-measure" key={measure}>
                 <span className="measure-number">{String(measure + 1).padStart(2, '0')}</span>
-                {chords.length > 0 && <div className="score-chords" style={{ gridTemplateColumns: `repeat(${beatsPerMeasure}, minmax(0, 1fr))` }}>
+                {chords.length > 0 && <div className="score-chords">
                   {measureChords[measure].map((change, index) => <span
                     className="score-chord"
                     key={index}
