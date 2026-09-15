@@ -2,7 +2,8 @@ import { memo, useEffect, useMemo, useRef } from 'react';
 import type { CSSProperties } from 'react';
 import { numberForPitch } from '../../../entities/music/lib/pitch';
 import type { MusicalTimeline } from '../../../entities/music/lib/musicalTimeline';
-import type { Note, SongMetadata } from '../../../entities/music/model/types';
+import type { LabelMode, Note, SongMetadata } from '../../../entities/music/model/types';
+import { NumberedChord } from '../../../entities/music/ui/NumberedChord';
 import { useI18n } from '../../../shared/i18n';
 
 type QuantizedNotes = Map<number, Note>;
@@ -65,12 +66,13 @@ type JianpuViewProps = {
   bpm: number;
   getElapsed: () => number;
   keySignature: string;
+  labelMode: LabelMode;
   metadata?: SongMetadata | null;
   notes: Note[];
   timeline: MusicalTimeline;
 };
 
-export const JianpuView = memo(function JianpuView({ bpm, getElapsed, notes, keySignature, metadata, timeline }: JianpuViewProps) {
+export const JianpuView = memo(function JianpuView({ bpm, getElapsed, notes, keySignature, labelMode, metadata, timeline }: JianpuViewProps) {
   const { t } = useI18n();
   const systemRefs = useRef<Array<HTMLElement | null>>([]);
   const rowRefs = useRef<Array<HTMLDivElement | null>>([]);
@@ -107,7 +109,7 @@ export const JianpuView = memo(function JianpuView({ bpm, getElapsed, notes, key
         if (labels[labels.length - 1] !== change.chord) labels.push(change.chord);
         beatChords.set(beat, labels);
       });
-      return Array.from(beatChords, ([beat, labels]) => ({ beat, chord: labels.join(' / ') }));
+      return Array.from(beatChords, ([beat, labels]) => ({ beat, labels }));
     });
   }, [beatsPerMeasure, chords, totalMeasures]);
   const systems = useMemo(() => Array.from({ length: Math.ceil(totalMeasures / MEASURES_PER_SYSTEM) }, (_, systemIndex) => {
@@ -198,7 +200,10 @@ export const JianpuView = memo(function JianpuView({ bpm, getElapsed, notes, key
                     className="score-chord"
                     key={index}
                     style={{ gridColumn: change.beat + 1, gridRow: 1 }}
-                  >{change.chord}</span>)}
+                  >{change.labels.map((chord, chordIndex) => <span key={chordIndex}>
+                    {chordIndex > 0 && ' · '}
+                    {labelMode === 'number' ? <NumberedChord chord={chord} keySignature={keySignature} /> : chord}
+                  </span>)}</span>)}
                 </div>}
                 {Array.from({ length: beatsPerMeasure }, (_, beat) => <Beat key={beat} beat={measure * beatsPerMeasure + beat} notes={quantized} keySignature={keySignature} />)}
               </div>)}

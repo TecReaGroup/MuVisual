@@ -1,6 +1,7 @@
 import { ArrowLeft, AudioLines, ListMusic, PanelRightClose, PanelRightOpen, Piano } from 'lucide-react';
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { createDemoNotes, createMusicalTimeline, type AudioSource, type BeatAnalysis, type Instrument, type LabelMode, type Note, type ViewMode } from '../../entities/music';
+import { NumberedChord } from '../../entities/music/ui/NumberedChord';
 import { parseMidiFile, type ImportedMidi, type MidiVariant } from '../../features/midi-import';
 import { PianoRoll } from '../../features/piano-roll';
 import { PlaybackControls, usePlayback } from '../../features/playback';
@@ -129,7 +130,7 @@ export function StudioPage({ initialMidi, onBack }: StudioPageProps) {
           ? <PianoRoll duration={playback.duration} getElapsed={playback.getElapsed} keySignature={keySignature} labelMode={labelMode} notes={notes} timeline={timeline} onSeek={playback.seek} />
           : instrument === 'drums'
             ? <Suspense fallback={<div className="score-stage" role="status">{t('studio.loadingResources')}</div>}><DrumScoreView bpm={bpm} notes={notes} getElapsed={playback.getElapsed} timeline={timeline} metadata={initialMidi?.metadata} /></Suspense>
-            : <JianpuView bpm={bpm} notes={notes} getElapsed={playback.getElapsed} keySignature={keySignature} timeline={timeline} metadata={initialMidi?.metadata} />}
+            : <JianpuView bpm={bpm} notes={notes} getElapsed={playback.getElapsed} keySignature={keySignature} labelMode={labelMode} timeline={timeline} metadata={initialMidi?.metadata} />}
         <div className="canvas-label">
           <span>{t(viewMode === 'roll' ? 'studio.liveVisualizer' : instrument === 'drums' ? 'studio.drumScore' : 'studio.numberedNotation')}</span>
           <div className="view-switch" role="group" aria-label={t('studio.viewSettings')}>
@@ -138,7 +139,7 @@ export function StudioPage({ initialMidi, onBack }: StudioPageProps) {
             <button onClick={() => setControlsCollapsed(value => !value)} aria-label={t(controlsCollapsed ? 'studio.openSettings' : 'studio.closeSettings')} title={t(controlsCollapsed ? 'studio.openSettings' : 'studio.closeSettings')}>{controlsCollapsed ? <PanelRightOpen size={15} /> : <PanelRightClose size={15} />}</button>
           </div>
         </div>
-        {viewMode === 'roll' && <div className={`chord-display ${chordName ? 'visible' : ''}`} aria-live="polite">{chordName}</div>}
+        {viewMode === 'roll' && <div className={`chord-display ${chordName ? 'visible' : ''}`} aria-live="polite">{labelMode === 'number' ? <NumberedChord chord={chordName} keySignature={keySignature} /> : chordName}</div>}
       </div>
       <aside className={`controls ${controlsCollapsed ? 'collapsed' : ''}`}>
         <PlaybackControls
