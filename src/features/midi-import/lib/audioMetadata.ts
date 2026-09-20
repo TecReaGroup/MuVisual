@@ -64,7 +64,8 @@ export async function prepareAudioWithMetadata(file: File, title: string, album:
       input,
       output,
       tracks: 'primary',
-      tags: inputTags => ({ ...inputTags, title, album }),
+      // Copying source tags can corrupt ID3 framing: the current writer sizes UTF-8 lyrics by character count.
+      tags: { title, album },
       showWarnings: false,
     });
     if (!conversion.isValid) throw new Error('Unsupported audio codec');
