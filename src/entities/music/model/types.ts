@@ -2,6 +2,8 @@ export type Hand = 'left' | 'right';
 
 export type Note = {
   pitch: number;
+  /** MIDI note-on velocity, in the 0-127 range. */
+  velocity: number;
   start: number;
   duration: number;
   beat: number;
@@ -20,6 +22,14 @@ export type TempoPoint = {
 export type BeatAnalysis = {
   beats: number[];
   downbeats: number[];
+};
+
+export type SongMetadata = BeatAnalysis & {
+  bpm: number;
+  keySignature: string;
+  timeSignature: string;
+  beatsPerMeasure: number;
+  chords: Array<{ beat: number; time: number; chord: string }>;
 };
 
 export type LabelMode = 'name' | 'number';

@@ -1,9 +1,9 @@
 import { ArrowUpRight, AudioLines, FileMusic, LibraryBig, LoaderCircle, Search, Sparkles, Upload, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import type { Instrument } from '../../entities/music';
-import { MidiImportButton, parseMidiFile, type ImportedMidi, type MidiVariant } from '../../features/midi-import';
+import { MidiImportButton, type ImportedMidi } from '../../features/midi-import';
 import { LanguageButton, useI18n, type TranslationKey } from '../../shared/i18n';
-import { getBeatAnalysis, getLibrary, type LibraryItem } from './api';
+import { getSongMetadata, getLibrary, type LibraryItem } from './api';
 
 const BAR_COUNT = 30;
 const INSTRUMENT_ORDER: Instrument[] = ['piano', 'other', 'vocals', 'bass', 'drums', 'guitar'];
@@ -72,40 +72,30 @@ export function LibraryPage({ onOpenMidi, onHome }: LibraryPageProps) {
     setOpeningId(item.id);
     setError(null);
     try {
-      const loadMidi = async (url: string | null, instrument: Instrument) => {
-        if (!url) return null;
-        const response = await fetch(url);
-        if (!response.ok) return null;
-        const file = new File([await response.blob()], `${item.title}_${instrument}.mid`, { type: 'audio/midi' });
-        return parseMidiFile(file);
-      };
-      const [loadedMidi, beatAnalysis] = await Promise.all([
-        Promise.all(INSTRUMENT_ORDER.map(async instrument => [
-          instrument,
-          await loadMidi(item.instruments[instrument]?.midiUrl ?? null, instrument),
-        ] as const)),
-        getBeatAnalysis(item.beatUrl),
-      ]);
-      const midiByInstrument = Object.fromEntries(loadedMidi) as Partial<Record<Instrument, MidiVariant | null>>;
+      const metadata = await getSongMetadata(item.metadataUrl);
       const availableInstruments = INSTRUMENT_ORDER.filter(instrument => item.instruments[instrument]);
-      const defaultInstrument = availableInstruments.find(instrument => midiByInstrument[instrument])
+      const defaultInstrument = availableInstruments.find(instrument => item.instruments[instrument]?.midiUrl)
         ?? availableInstruments[0];
       if (!defaultInstrument) throw new Error('No instrument media found');
-      const selected = midiByInstrument[defaultInstrument] ?? {
+      const selected = {
         backgroundDelayMs: 0,
-        bpm: beatAnalysis?.beats[1] ? Math.round(60 / (beatAnalysis.beats[1] - beatAnalysis.beats[0])) : 120,
+        bpm: 120,
         keySignature: 'C:major',
         notes: [],
         tempoMap: [],
       };
       onOpenMidi({
         ...selected,
+        bpm: metadata?.bpm ?? selected.bpm,
+        keySignature: metadata?.keySignature ?? selected.keySignature,
         audioUrls: { original: item.audioUrl, instrument: item.instruments[defaultInstrument]?.audioUrl ?? null },
-        beatAnalysis,
+        beatAnalysis: metadata,
+        metadata,
         defaultInstrument,
         instruments: Object.fromEntries(availableInstruments.map(instrument => [instrument, {
           audioUrl: item.instruments[instrument]?.audioUrl ?? null,
-          midi: midiByInstrument[instrument] ?? null,
+          midiUrl: item.instruments[instrument]?.midiUrl ?? null,
+          midi: null,
         }])),
         name: item.title,
       });

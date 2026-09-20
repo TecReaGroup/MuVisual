@@ -1,16 +1,20 @@
 import { ArrowLeft, AudioLines, ListMusic, PanelRightClose, PanelRightOpen, Piano } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { createDemoNotes, createMusicalTimeline, type AudioSource, type BeatAnalysis, type Instrument, type LabelMode, type Note, type ViewMode } from '../../entities/music';
-import { type ImportedMidi, type MidiVariant } from '../../features/midi-import';
+import { NumberedChord } from '../../entities/music/ui/NumberedChord';
+import { parseMidiFile, type ImportedMidi, type MidiVariant } from '../../features/midi-import';
 import { PianoRoll } from '../../features/piano-roll';
 import { PlaybackControls, usePlayback } from '../../features/playback';
 import { JianpuView } from '../../features/score';
 import { LanguageButton, useI18n } from '../../shared/i18n';
+import { fetchMusicResource } from '../../shared/lib/fetchMusicResource';
 
 type StudioPageProps = {
   initialMidi?: ImportedMidi;
   onBack?: () => void;
 };
+
+const DrumScoreView = lazy(() => import('../../features/score/ui/DrumScoreView').then(module => ({ default: module.DrumScoreView })));
 
 function toMidiVariant(midi: ImportedMidi): MidiVariant {
   return {
@@ -27,7 +31,7 @@ export function StudioPage({ initialMidi, onBack }: StudioPageProps) {
   const initialInstrument = initialMidi?.defaultInstrument ?? 'piano';
   const initialInstrumentMedia = initialMidi?.instruments?.[initialInstrument];
   const initialAudioSource: AudioSource = initialMidi?.instruments
-    ? initialInstrumentMedia?.midi ? 'midi' : initialInstrumentMedia?.audioUrl ? 'instrument' : 'original'
+    ? initialInstrumentMedia?.midi || initialInstrumentMedia?.midiUrl ? 'midi' : initialInstrumentMedia?.audioUrl ? 'instrument' : 'original'
     : 'midi';
   const [notes, setNotes] = useState<Note[]>(() => initialMidi?.notes ?? createDemoNotes());
   const [bpm, setBpm] = useState(initialMidi?.bpm ?? 92);
@@ -39,22 +43,48 @@ export function StudioPage({ initialMidi, onBack }: StudioPageProps) {
   const [labelMode, setLabelMode] = useState<LabelMode>('name');
   const [viewMode, setViewMode] = useState<ViewMode>('roll');
   const [controlsCollapsed, setControlsCollapsed] = useState(true);
-  const [chordName, setChordName] = useState<string | null>(null);
   const [instrument, setInstrument] = useState<Instrument>(initialInstrument);
-  const [instruments, setInstruments] = useState<Partial<Record<Instrument, { audioUrl: string | null; midi: MidiVariant | null }>>>(() => initialMidi?.instruments ?? (initialMidi ? { piano: { audioUrl: null, midi: toMidiVariant(initialMidi) } } : {}));
+  const [instruments, setInstruments] = useState<NonNullable<ImportedMidi['instruments']>>(() => initialMidi?.instruments ?? (initialMidi ? { piano: { audioUrl: null, midi: toMidiVariant(initialMidi) } } : {}));
   const [audioSource, setAudioSource] = useState<AudioSource>(initialAudioSource);
   const [audioUrls, setAudioUrls] = useState(() => initialMidi?.audioUrls ?? { original: null, instrument: null });
   const [beatAnalysis, setBeatAnalysis] = useState<BeatAnalysis | null>(() => initialMidi?.beatAnalysis ?? null);
   const [beatEnhance, setBeatEnhance] = useState(true);
-  const resourceAudioUrls = useMemo(
-    () => [...new Set([audioUrls.original, ...Object.values(instruments).map(media => media?.audioUrl)].filter((url): url is string => Boolean(url)))],
-    [audioUrls.original, instruments],
-  );
+  const [midiErrorInstrument, setMidiErrorInstrument] = useState<Instrument | null>(null);
+  const currentMedia = instruments[instrument];
+  const midiLoadStatus = midiErrorInstrument === instrument ? 'error'
+    : currentMedia?.midiUrl && !currentMedia.midi ? 'loading' : 'ready';
+  useEffect(() => {
+    if (!currentMedia?.midiUrl || currentMedia.midi) return;
+    const midiUrl = currentMedia.midiUrl;
+    const controller = new AbortController();
+    async function loadCurrentMidi() {
+      try {
+        const bytes = await fetchMusicResource(midiUrl, controller.signal);
+        const midi = await parseMidiFile(new File([bytes], `${instrument}.mid`, { type: 'audio/midi' }));
+        if (controller.signal.aborted) return;
+        if (!midi) throw new Error('Unable to parse instrument MIDI');
+        setInstruments(current => ({ ...current, [instrument]: { ...current[instrument]!, midi } }));
+        setNotes(midi.notes);
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        console.error(error);
+        setMidiErrorInstrument(instrument);
+      }
+    }
+    void loadCurrentMidi();
+    return () => controller.abort();
+  }, [currentMedia, instrument]);
   const timeline = useMemo(
     () => createMusicalTimeline(bpm, gridDelay, beatEnhance ? beatAnalysis : null),
     [beatAnalysis, beatEnhance, bpm, gridDelay],
   );
-  const playback = usePlayback(notes, muted, volume, audioSource, instrument, audioUrls, resourceAudioUrls);
+  const playback = usePlayback(notes, muted, volume, audioSource, instrument, audioUrls, midiLoadStatus);
+  const chords = initialMidi?.metadata?.chords ?? [];
+  let chordName = '';
+  for (const entry of chords) {
+    if (entry.time > playback.elapsed) break;
+    chordName = entry.chord === 'N' ? '' : entry.chord;
+  }
   const loadStatusLabel = {
     loading: t('studio.loadingResources'),
     ready: t('studio.ready'),
@@ -65,17 +95,15 @@ export function StudioPage({ initialMidi, onBack }: StudioPageProps) {
   const handleInstrumentChange = (nextInstrument: Instrument) => {
     const next = instruments[nextInstrument];
     if (!next || nextInstrument === instrument) return;
-    playback.reset();
+    playback.pause();
+    setMidiErrorInstrument(null);
     setInstrument(nextInstrument);
     setAudioUrls(current => ({ original: current.original, instrument: next.audioUrl }));
     if (next.midi) {
       setNotes(next.midi.notes);
-      setBpm(next.midi.bpm);
-      setKeySignature(next.midi.keySignature);
-      setGridDelay(next.midi.backgroundDelayMs);
     } else {
       setNotes([]);
-      if (audioSource === 'midi') setAudioSource(next.audioUrl ? 'instrument' : 'original');
+      if (audioSource === 'midi' && !next.midiUrl) setAudioSource(next.audioUrl ? 'instrument' : 'original');
     }
   };
 
@@ -99,23 +127,25 @@ export function StudioPage({ initialMidi, onBack }: StudioPageProps) {
         playback.seek(Math.max(0, Math.min(playback.duration, playback.getElapsed() + event.deltaY / 240 * beatStep)));
       } : undefined}>
         {viewMode === 'roll'
-          ? <PianoRoll duration={playback.duration} getElapsed={playback.getElapsed} keySignature={keySignature} labelMode={labelMode} notes={notes} timeline={timeline} onChordChange={setChordName} onSeek={playback.seek} />
-          : <JianpuView bpm={bpm} notes={notes} getElapsed={playback.getElapsed} keySignature={keySignature} timeline={timeline} />}
+          ? <PianoRoll duration={playback.duration} getElapsed={playback.getElapsed} keySignature={keySignature} labelMode={labelMode} notes={notes} timeline={timeline} onSeek={playback.seek} />
+          : instrument === 'drums'
+            ? <Suspense fallback={<div className="score-stage" role="status">{t('studio.loadingResources')}</div>}><DrumScoreView bpm={bpm} notes={notes} getElapsed={playback.getElapsed} timeline={timeline} metadata={initialMidi?.metadata} /></Suspense>
+            : <JianpuView bpm={bpm} notes={notes} getElapsed={playback.getElapsed} keySignature={keySignature} labelMode={labelMode} timeline={timeline} metadata={initialMidi?.metadata} />}
         <div className="canvas-label">
-          <span>{t(viewMode === 'roll' ? 'studio.liveVisualizer' : 'studio.numberedNotation')}</span>
+          <span>{t(viewMode === 'roll' ? 'studio.liveVisualizer' : instrument === 'drums' ? 'studio.drumScore' : 'studio.numberedNotation')}</span>
           <div className="view-switch" role="group" aria-label={t('studio.viewSettings')}>
             <button className={viewMode === 'roll' ? 'selected' : ''} onClick={() => setViewMode('roll')} aria-label={t('studio.pianoRollView')} title={t('studio.pianoRollView')}><Piano size={15} /></button>
-            <button className={viewMode === 'score' ? 'selected' : ''} onClick={() => setViewMode('score')} aria-label={t('studio.scoreView')} title={t('studio.scoreView')}><ListMusic size={15} /></button>
+            <button className={viewMode === 'score' ? 'selected' : ''} onClick={() => setViewMode('score')} aria-label={t(instrument === 'drums' ? 'studio.drumScore' : 'studio.scoreView')} title={t(instrument === 'drums' ? 'studio.drumScore' : 'studio.scoreView')}><ListMusic size={15} /></button>
             <button onClick={() => setControlsCollapsed(value => !value)} aria-label={t(controlsCollapsed ? 'studio.openSettings' : 'studio.closeSettings')} title={t(controlsCollapsed ? 'studio.openSettings' : 'studio.closeSettings')}>{controlsCollapsed ? <PanelRightOpen size={15} /> : <PanelRightClose size={15} />}</button>
           </div>
         </div>
-        {viewMode === 'roll' && <div className={`chord-display ${chordName ? 'visible' : ''}`} aria-live="polite">{chordName ?? ''}</div>}
+        {viewMode === 'roll' && <div className={`chord-display ${chordName ? 'visible' : ''}`} aria-live="polite">{labelMode === 'number' ? <NumberedChord chord={chordName} keySignature={keySignature} /> : chordName}</div>}
       </div>
       <aside className={`controls ${controlsCollapsed ? 'collapsed' : ''}`}>
         <PlaybackControls
           audioSource={audioSource}
           instrument={instrument}
-          availableAudioSources={{ midi: Boolean(instruments[instrument]?.midi) || !initialMidi, instrument: Boolean(audioUrls.instrument), original: Boolean(audioUrls.original) }}
+          availableAudioSources={{ midi: Boolean(currentMedia?.midi || currentMedia?.midiUrl) || !initialMidi, instrument: Boolean(audioUrls.instrument), original: Boolean(audioUrls.original) }}
           availableInstruments={Object.fromEntries((Object.keys(instruments) as Instrument[]).map(name => [name, true]))}
           beatEnhanceAvailable={Boolean(beatAnalysis)}
           beatEnhanceEnabled={beatEnhance}

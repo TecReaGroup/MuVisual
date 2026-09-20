@@ -1,14 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AudioSource, Instrument, Note } from '../../../entities/music/model/types';
+import { fetchMusicResource } from '../../../shared/lib/fetchMusicResource';
 import { usePianoAudio } from './usePianoAudio';
 
 const SCHEDULE_INTERVAL_MS = 25;
 const SCHEDULE_LOOKAHEAD_SECONDS = 0.15;
 const START_LEAD_SECONDS = 0.1;
 const SEEK_SETTLE_MS = 80;
-const AUDIO_CACHE_NAME = 'muvisual-studio-audio-v1';
-const AUDIO_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-const AUDIO_CACHE_TIME_HEADER = 'x-muvisual-cached-at';
 
 type MediaKind = 'original' | 'instrument';
 type MediaBuffers = Partial<Record<MediaKind, AudioBuffer>>;
@@ -16,47 +14,6 @@ type MediaSources = Partial<Record<MediaKind, AudioBufferSourceNode>>;
 type MediaGains = Partial<Record<MediaKind, GainNode>>;
 type LoadStatus = 'loading' | 'ready' | 'error';
 type MediaLoadState = { key: string; status: LoadStatus };
-
-async function fetchAudioResource(url: string, signal: AbortSignal) {
-  const request = new Request(url, { credentials: 'same-origin' });
-  let cache: Cache | null = null;
-
-  if ('caches' in window) {
-    try {
-      cache = await caches.open(AUDIO_CACHE_NAME);
-      const cached = await cache.match(request);
-      if (cached) {
-        const cachedAt = Number(cached.headers.get(AUDIO_CACHE_TIME_HEADER));
-        if (Number.isFinite(cachedAt) && Date.now() - cachedAt < AUDIO_CACHE_TTL_MS) {
-          return cached.arrayBuffer();
-        }
-        await cache.delete(request);
-      }
-    } catch {
-      cache = null;
-    }
-  }
-
-  const response = await fetch(request, { signal });
-  if (!response.ok) throw new Error(`Unable to load audio resource: ${url}`);
-  const data = await response.arrayBuffer();
-
-  if (cache) {
-    try {
-      const headers = new Headers(response.headers);
-      headers.set(AUDIO_CACHE_TIME_HEADER, String(Date.now()));
-      await cache.put(request, new Response(data.slice(0), {
-        status: response.status,
-        statusText: response.statusText,
-        headers,
-      }));
-    } catch {
-      // Playback can continue when persistent browser caching is unavailable.
-    }
-  }
-
-  return data;
-}
 
 function findNoteIndex(notes: Note[], time: number) {
   let low = 0;
@@ -76,14 +33,14 @@ export function usePlayback(
   audioSource: AudioSource = 'midi',
   instrument: Instrument = 'piano',
   audioUrls: { original: string | null; instrument: string | null } = { original: null, instrument: null },
-  resourceAudioUrls: string[] = [],
+  midiLoadStatus: LoadStatus = 'ready',
 ) {
   const [playing, setPlaying] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [mediaDuration, setMediaDuration] = useState(0);
   const allAudioUrls = useMemo(
-    () => [...new Set([audioUrls.original, audioUrls.instrument, ...resourceAudioUrls].filter((url): url is string => Boolean(url)))].sort(),
-    [audioUrls.instrument, audioUrls.original, resourceAudioUrls],
+    () => [...new Set([audioUrls.original, audioUrls.instrument].filter((url): url is string => Boolean(url)))].sort(),
+    [audioUrls.instrument, audioUrls.original],
   );
   const mediaLoadKey = allAudioUrls.join('\n');
   const [mediaLoadState, setMediaLoadState] = useState<MediaLoadState>(() => ({
@@ -109,8 +66,7 @@ export function usePlayback(
   const mediaGainsRef = useRef<MediaGains>({});
   const mediaLoadRef = useRef<Promise<void>>(Promise.resolve());
   const midiMuted = muted || audioSource !== 'midi';
-  const midiTimbre = instrument === 'piano' ? 'piano' : 'string';
-  const { getAudioContext, getAudioTime, loadStatus: timbreLoadStatus, playNote, prepare, stopAll } = usePianoAudio(midiMuted, volume, midiTimbre);
+  const { getAudioContext, getAudioTime, getOutputTime, loadStatus: timbreLoadStatus, loadTimbre, playNote, prepare, stopAll } = usePianoAudio(midiMuted, volume, instrument);
   const sortedNotes = useMemo(() => [...notes].sort((first, second) => first.start - second.start), [notes]);
   const notesRef = useRef(sortedNotes);
   notesRef.current = sortedNotes;
@@ -120,9 +76,9 @@ export function usePlayback(
   );
   const duration = Math.max(midiDuration, mediaDuration);
   const mediaLoadStatus = mediaLoadState.key === mediaLoadKey ? mediaLoadState.status : 'loading';
-  const loadStatus: LoadStatus = timbreLoadStatus === 'error' || mediaLoadStatus === 'error'
+  const loadStatus: LoadStatus = timbreLoadStatus === 'error' || mediaLoadStatus === 'error' || midiLoadStatus === 'error'
     ? 'error'
-    : timbreLoadStatus === 'ready' && mediaLoadStatus === 'ready' ? 'ready' : 'loading';
+    : timbreLoadStatus === 'ready' && mediaLoadStatus === 'ready' && midiLoadStatus === 'ready' ? 'ready' : 'loading';
 
   const ensureMediaGains = useCallback(() => {
     const context = getAudioContext();
@@ -165,6 +121,16 @@ export function usePlayback(
     return Math.max(0, getAudioTime() - transportStartAudioTimeRef.current);
   }, [getAudioTime]);
 
+  const getOutputPosition = useCallback(() => {
+    // Hold the start position during pre-roll and ignore backward output-clock corrections.
+    const position = Math.min(duration, Math.max(
+      elapsedRef.current,
+      getOutputTime() - transportStartAudioTimeRef.current,
+    ));
+    elapsedRef.current = position;
+    return position;
+  }, [duration, getOutputTime]);
+
   useEffect(() => {
     ensureMediaGains();
     const context = getAudioContext();
@@ -182,18 +148,20 @@ export function usePlayback(
     const context = getAudioContext();
     const controller = new AbortController();
     mediaBuffersRef.current = {};
-    resourceBuffersRef.current = new Map();
     setMediaDuration(0);
     setMediaLoadState({ key: mediaLoadKey, status: allAudioUrls.length ? 'loading' : 'ready' });
     const load = Promise.all(allAudioUrls.map(async url => {
-      const buffer = await context.decodeAudioData(await fetchAudioResource(url, controller.signal));
-      return [url, buffer] as const;
-    })).then(decodedEntries => {
+      if (resourceBuffersRef.current.has(url)) return;
+      const resourceBytes = await fetchMusicResource(url, controller.signal);
       if (controller.signal.aborted) return;
-      resourceBuffersRef.current = new Map(decodedEntries);
+      const buffer = await context.decodeAudioData(resourceBytes);
+      if (controller.signal.aborted) return;
+      resourceBuffersRef.current.set(url, buffer);
+    })).then(() => {
+      if (controller.signal.aborted) return;
       setMediaLoadState({ key: mediaLoadKey, status: 'ready' });
     }).catch(error => {
-      if (error instanceof DOMException && error.name === 'AbortError') return;
+      if (controller.signal.aborted || (error instanceof DOMException && error.name === 'AbortError')) return;
       console.error(error);
       setMediaLoadState({ key: mediaLoadKey, status: 'error' });
     });
@@ -221,7 +189,7 @@ export function usePlayback(
       const note = notesRef.current[nextNoteIndexRef.current];
       if (note.start > scheduleThrough) break;
       const noteTime = transportStartAudioTimeRef.current + note.start;
-      playNote(note.pitch, note.duration, Math.max(audioNow, noteTime));
+      playNote(note, Math.max(audioNow, noteTime));
       nextNoteIndexRef.current += 1;
     }
   }, [getAudioTime, getTimelineTime, playNote]);
@@ -231,10 +199,8 @@ export function usePlayback(
 
     const updatePosition = () => {
       const now = performance.now();
-      const playbackTime = getTimelineTime();
-      const current = Math.min(playbackTime, duration);
-      elapsedRef.current = current;
-      if (playbackTime >= duration) {
+      const current = getOutputPosition();
+      if (current >= duration) {
         stopAll();
         stopMedia();
         pausedRef.current = duration;
@@ -256,7 +222,7 @@ export function usePlayback(
       window.clearInterval(scheduleInterval);
       cancelAnimationFrame(playbackRafRef.current!);
     };
-  }, [duration, getTimelineTime, playing, scheduleMidiNotes, stopAll, stopMedia]);
+  }, [duration, getOutputPosition, playing, scheduleMidiNotes, stopAll, stopMedia]);
 
   const pause = useCallback(() => {
     startRequestRef.current += 1;
@@ -265,17 +231,19 @@ export function usePlayback(
     seekActiveRef.current = false;
     resumeAfterSeekRef.current = false;
     preparingRef.current = false;
-    if (playing) pausedRef.current = Math.min(duration, getTimelineTime());
+    if (playing) pausedRef.current = getOutputPosition();
     stopAll();
     stopMedia();
     elapsedRef.current = pausedRef.current;
     setElapsed(pausedRef.current);
     setPlaying(false);
-  }, [duration, getTimelineTime, playing, stopAll, stopMedia]);
+  }, [getOutputPosition, playing, stopAll, stopMedia]);
 
   const startAt = useCallback((position: number) => {
     const when = getAudioTime() + START_LEAD_SECONDS;
     transportStartAudioTimeRef.current = when - position;
+    elapsedRef.current = position;
+    pausedRef.current = position;
     nextNoteIndexRef.current = findNoteIndex(notesRef.current, position);
     startMedia(when, position);
     scheduleMidiNotes(position);
@@ -288,7 +256,7 @@ export function usePlayback(
       pause();
       return;
     }
-    if (loadStatus !== 'ready') return;
+    if (midiLoadStatus !== 'ready' || mediaLoadStatus !== 'ready' || timbreLoadStatus === 'loading') return;
     if (preparingRef.current) {
       startRequestRef.current += 1;
       preparingRef.current = false;
@@ -301,11 +269,18 @@ export function usePlayback(
     }
     const request = ++startRequestRef.current;
     preparingRef.current = true;
-    await Promise.all([prepare(), mediaLoadRef.current]);
+    let timbreReady: boolean;
+    try {
+      [timbreReady] = await Promise.all([prepare(), mediaLoadRef.current]);
+    } catch {
+      if (request === startRequestRef.current) preparingRef.current = false;
+      return;
+    }
     if (request !== startRequestRef.current) return;
     preparingRef.current = false;
+    if (!timbreReady) return;
     startAt(pausedRef.current);
-  }, [duration, loadStatus, pause, playing, prepare, startAt]);
+  }, [duration, midiLoadStatus, mediaLoadStatus, timbreLoadStatus, pause, playing, prepare, startAt]);
 
   toggleRef.current = toggle;
   useEffect(() => {
@@ -358,6 +333,7 @@ export function usePlayback(
   }, [duration, getAudioTime, playing, startAt, stopAll, stopMedia]);
 
   const reset = useCallback(() => {
+    if (timbreLoadStatus === 'error') void loadTimbre();
     startRequestRef.current += 1;
     seekRequestRef.current += 1;
     window.clearTimeout(seekTimerRef.current);
@@ -372,9 +348,18 @@ export function usePlayback(
     nextNoteIndexRef.current = 0;
     setElapsed(0);
     setPlaying(false);
-  }, [stopAll, stopMedia]);
+  }, [loadTimbre, stopAll, stopMedia, timbreLoadStatus]);
 
   useEffect(() => () => {
+    startRequestRef.current += 1;
+    seekRequestRef.current += 1;
+    preparingRef.current = false;
+    window.clearTimeout(seekTimerRef.current);
+  }, [instrument]);
+
+  useEffect(() => () => {
+    startRequestRef.current += 1;
+    seekRequestRef.current += 1;
     window.clearTimeout(seekTimerRef.current);
     stopMedia();
     Object.values(mediaGainsRef.current).forEach(gain => gain?.disconnect());
@@ -382,8 +367,9 @@ export function usePlayback(
   }, [stopMedia]);
 
   const getElapsed = useCallback(() => {
-    return playing ? getTimelineTime() : elapsedRef.current;
-  }, [getTimelineTime, playing]);
+    if (!playing) return elapsedRef.current;
+    return getOutputPosition();
+  }, [getOutputPosition, playing]);
 
   return { duration, elapsed, getElapsed, loadStatus, pause, playing, reset, seek, toggle };
 }

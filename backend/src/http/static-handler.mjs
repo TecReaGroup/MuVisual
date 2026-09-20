@@ -17,7 +17,7 @@ export async function streamFrontend(response, pathname) {
       'Content-Type': staticContentTypes[extname(filePath).toLowerCase()] ?? 'application/octet-stream',
       'Content-Length': fileStats.size,
       'Cache-Control': pathname.startsWith('/assets/')
-        || pathname.startsWith('/audio/')
+         || pathname.startsWith('/sample-library/')
         || pathname.startsWith('/fonts/')
         || pathname === '/favicon.svg'
         ? 'public, max-age=31536000, immutable'

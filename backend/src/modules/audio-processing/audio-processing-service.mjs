@@ -19,8 +19,8 @@ let initialization;
 let processingQueue = Promise.resolve();
 let queuedCount = 0;
 
-const jobsRoot = join(paths.modalRoot, '.jobs');
-const uploadsRoot = join(paths.modalRoot, '.uploads');
+const jobsRoot = join(paths.uploadRoot, '.jobs');
+const uploadsRoot = join(paths.uploadRoot, '.uploads');
 
 async function ensureWorkingDirectories() {
   await Promise.all([
@@ -411,7 +411,7 @@ async function extractModalResult(job) {
     });
   }
 
-  const destinationFolder = join(paths.modalRoot, folderName);
+  const destinationFolder = join(paths.uploadRoot, folderName);
   await updateJob(job, { status: 'extracting', folderName });
   let destinationClaimed = false;
   try {
@@ -422,7 +422,7 @@ async function extractModalResult(job) {
     destinationClaimed = true;
 
     discardMacMetadata(zip);
-    await zip.extractAllToAsync(paths.modalRoot, false, false);
+    await zip.extractAllToAsync(paths.uploadRoot, false, false);
     const extractedStats = await stat(destinationFolder);
     if (!extractedStats.isDirectory()) {
       throw Object.assign(new Error('Modal ZIP top-level entry is not a track folder'), {

@@ -3,11 +3,11 @@ import { END_MIDI, isWhitePitch, numberForPitch, PITCH_NAMES, START_MIDI } from 
 import type { MusicalTimeline } from '../../../entities/music/lib/musicalTimeline';
 import type { LabelMode, Note } from '../../../entities/music/model/types';
 import { useI18n } from '../../../shared/i18n';
-import { recognizeChord } from '../model/recognizeChord';
-
-const DRAW_FRAME_INTERVAL_MS = 1000 / 120;
 
 type PianoKey = { x: number; w: number; h: number; black: boolean };
+
+// Short percussion notes need visible contact feedback even between animation frames.
+const MIN_KEY_HIGHLIGHT_SECONDS = 0.08;
 
 type PianoRollProps = {
   duration: number;
@@ -16,7 +16,6 @@ type PianoRollProps = {
   labelMode: LabelMode;
   notes: Note[];
   timeline: MusicalTimeline;
-  onChordChange: (chord: string | null) => void;
   onSeek: (time: number) => void;
 };
 
@@ -43,7 +42,6 @@ export const PianoRoll = memo(function PianoRoll({
   labelMode,
   notes,
   timeline,
-  onChordChange,
   onSeek,
 }: PianoRollProps) {
   const { t } = useI18n();
@@ -55,7 +53,6 @@ export const PianoRoll = memo(function PianoRoll({
     [sortedNotes],
   );
   const notesRef = useRef(sortedNotes);
-  const chordRef = useRef<string | null>(null);
   notesRef.current = sortedNotes;
 
   useEffect(() => {
@@ -63,8 +60,6 @@ export const PianoRoll = memo(function PianoRoll({
     if (!canvas) return;
     const context = canvas.getContext('2d');
     if (!context) return;
-    chordRef.current = null;
-    onChordChange(null);
 
     let width = 0;
     let height = 0;
@@ -72,14 +67,16 @@ export const PianoRoll = memo(function PianoRoll({
     let whiteKeys: Array<[number, PianoKey]> = [];
     let blackKeys: Array<[number, PianoKey]> = [];
     let needsRedraw = true;
-    let activePitchSignature = '';
 
     const resize = () => {
       width = canvas.clientWidth;
       height = canvas.clientHeight;
       const dpr = Math.min(devicePixelRatio || 1, 1.5);
-      canvas.width = width * dpr;
-      canvas.height = height * dpr;
+      const pixelWidth = Math.floor(width * dpr);
+      const pixelHeight = Math.floor(height * dpr);
+      // Assigning either dimension clears the canvas, even when its value is unchanged.
+      if (canvas.width !== pixelWidth) canvas.width = pixelWidth;
+      if (canvas.height !== pixelHeight) canvas.height = pixelHeight;
       context.setTransform(dpr, 0, 0, dpr, 0, 0);
       const keyHeight = Math.min(150, height * 0.2);
       const whiteCount = Array.from(
@@ -116,13 +113,17 @@ export const PianoRoll = memo(function PianoRoll({
         .filter(([, key]) => key.black)
         .map(([pitch, key]) => [+pitch, key]);
       needsRedraw = true;
+      // ResizeObserver runs before paint; redraw now rather than exposing a cleared frame.
+      draw(getElapsed());
     };
 
     const draw = (time: number) => {
       const keyHeight = Math.min(150, height * 0.2);
-      const bottom = height - keyHeight;
+      const keyboardTop = height - keyHeight;
       const pixelsPerSecond = 180;
-      const viewEnd = time + bottom / pixelsPerSecond;
+      const viewEnd = time + keyboardTop / pixelsPerSecond;
+      // Every event reaches the keyboard's upper edge at its audio timeline time.
+      const timeToY = (eventTime: number) => keyboardTop - (eventTime - time) * pixelsPerSecond;
 
       context.fillStyle = '#080a0f';
       context.fillRect(0, 0, width, height);
@@ -131,7 +132,7 @@ export const PianoRoll = memo(function PianoRoll({
       context.beginPath();
       whiteKeys.forEach(([, key]) => {
         context.moveTo(key.x, 0);
-        context.lineTo(key.x, bottom);
+        context.lineTo(key.x, keyboardTop);
       });
       context.stroke();
 
@@ -146,7 +147,7 @@ export const PianoRoll = memo(function PianoRoll({
         context.beginPath();
         gridLines.forEach(line => {
           if (!matches(line)) return;
-          const y = bottom - (line.time - time) * pixelsPerSecond;
+          const y = timeToY(line.time);
           context.moveTo(0, y);
           context.lineTo(width, y);
         });
@@ -160,19 +161,19 @@ export const PianoRoll = memo(function PianoRoll({
       let currentFont = '';
       context.textAlign = 'center';
       context.textBaseline = 'bottom';
-      const firstVisible = lowerBound(notesRef.current, time - maxNoteDuration, true);
+      const firstVisible = lowerBound(notesRef.current, time - Math.max(maxNoteDuration, MIN_KEY_HIGHLIGHT_SECONDS), true);
       const afterLastVisible = lowerBound(notesRef.current, viewEnd, false);
       for (let index = firstVisible; index < afterLastVisible; index += 1) {
         const note = notesRef.current[index];
         const noteEnd = note.start + note.duration;
-        const active = time >= note.start && time <= noteEnd;
+        const active = time >= note.start && time < note.start + Math.max(note.duration, MIN_KEY_HIGHLIGHT_SECONDS);
         if (active) activePitches.add(note.pitch);
-        const yBottom = bottom - (note.start - time) * pixelsPerSecond;
-        const yTop = yBottom - note.duration * pixelsPerSecond;
+        const yBottom = timeToY(note.start);
+        const yTop = timeToY(noteEnd);
         const key = keys[note.pitch];
-        if (!key || yBottom < 0 || yTop > bottom) continue;
+        if (!key || yBottom < 0 || yTop > keyboardTop) continue;
         const top = Math.max(0, yTop);
-        const visibleBottom = Math.min(bottom, yBottom);
+        const visibleBottom = Math.min(keyboardTop, yBottom);
         const barHeight = visibleBottom - top;
         if (barHeight <= 0) continue;
 
@@ -192,60 +193,54 @@ export const PianoRoll = memo(function PianoRoll({
         }
       }
 
-      const nextActivePitchSignature = [...activePitches].sort((first, second) => first - second).join(',');
-      if (nextActivePitchSignature !== activePitchSignature) {
-        activePitchSignature = nextActivePitchSignature;
-        const chord = recognizeChord(activePitches);
-        if (chord !== chordRef.current) {
-          chordRef.current = chord;
-          onChordChange(chord);
-        }
-      }
-
       context.beginPath();
       whiteKeys.forEach(([pitch, key]) => {
         context.fillStyle = activePitches.has(pitch) ? '#ff6b5f' : '#e9ebef';
-        context.fillRect(key.x, bottom, key.w, key.h);
-        context.rect(key.x, bottom, key.w, key.h);
+        context.fillRect(key.x, keyboardTop, key.w, key.h);
+        context.rect(key.x, keyboardTop, key.w, key.h);
       });
       context.strokeStyle = '#15171c';
       context.lineWidth = 1;
       context.stroke();
       blackKeys.forEach(([pitch, key]) => {
         context.fillStyle = activePitches.has(pitch) ? '#ff6b5f' : '#1b1e26';
-        context.fillRect(key.x, bottom, key.w, key.h);
+        context.fillRect(key.x, keyboardTop, key.w, key.h);
+      });
+      // Draw contact feedback after the keys so black keys cannot obscure white-note onsets.
+      context.fillStyle = '#ff6b5f';
+      activePitches.forEach(pitch => {
+        const key = keys[pitch];
+        if (key) context.fillRect(key.x + 2, keyboardTop, Math.max(1, key.w - 4), 3);
       });
     };
 
     let drawRaf = 0;
-    let lastFrameTime = 0;
     let lastPlaybackTime = Number.NaN;
     let lastScrollbarUpdateTime = 0;
     const loop = (frameTime: number) => {
       const playbackTime = getElapsed();
-      const timeSinceLastFrame = frameTime - lastFrameTime;
-      if (needsRedraw || (timeSinceLastFrame >= DRAW_FRAME_INTERVAL_MS && playbackTime !== lastPlaybackTime)) {
+      if (needsRedraw || playbackTime !== lastPlaybackTime) {
         draw(playbackTime);
-        lastFrameTime = needsRedraw
-          ? frameTime
-          : frameTime - timeSinceLastFrame % DRAW_FRAME_INTERVAL_MS;
         lastPlaybackTime = playbackTime;
         needsRedraw = false;
       }
       if (frameTime - lastScrollbarUpdateTime >= 100 && scrollbarRef.current) {
-        scrollbarRef.current.value = String(Math.min(playbackTime, duration));
+        scrollbarRef.current.value = String(Math.max(0, Math.min(playbackTime, duration)));
         lastScrollbarUpdateTime = frameTime;
       }
       drawRaf = requestAnimationFrame(loop);
     };
     resize();
+    const resizeObserver = new ResizeObserver(resize);
+    resizeObserver.observe(canvas);
     window.addEventListener('resize', resize);
     drawRaf = requestAnimationFrame(loop);
     return () => {
       cancelAnimationFrame(drawRaf);
+      resizeObserver.disconnect();
       window.removeEventListener('resize', resize);
     };
-  }, [duration, getElapsed, keySignature, labelMode, maxNoteDuration, onChordChange, sortedNotes, timeline]);
+  }, [duration, getElapsed, keySignature, labelMode, maxNoteDuration, sortedNotes, timeline]);
 
   return <>
     <canvas ref={canvasRef} />

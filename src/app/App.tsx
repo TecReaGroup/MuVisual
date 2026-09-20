@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { ImportedMidi } from '../features/midi-import';
 import { getSession, login } from '../features/auth';
-import { preloadPiano } from '../features/playback';
 import { LibraryPage } from '../pages/library';
 import { LoginPage } from '../pages/login';
 import { StudioPage } from '../pages/studio';
@@ -77,7 +76,6 @@ export function App() {
       if (result.authenticated) {
         showApp();
         setAuthStatus('authenticated');
-        void preloadPiano();
       } else {
         showLogin();
         setAuthStatus('guest');
@@ -92,7 +90,6 @@ export function App() {
       showApp();
       setLoginError(null);
       setAuthStatus('authenticated');
-      void preloadPiano();
     }
     return authenticated;
   };
