@@ -95,7 +95,9 @@ export function MidiImportButton({ onImport, onProcessed }: { onImport: (midi: I
       const item = await waitForAudioJob(result.job.id);
       onProcessed?.(item, openRef.current);
     } catch (processError) {
-      setError(t((processError as Error & { code?: string }).code === 'AUDIO_PROCESSING_TIMEOUT' ? 'import.timeout' : 'import.error'));
+      const errorCode = (processError as Error & { code?: string }).code;
+      setError(t(errorCode === 'AUDIO_METADATA_WRITE_FAILED' ? 'import.metadataWriteFailed'
+        : errorCode === 'AUDIO_PROCESSING_TIMEOUT' ? 'import.timeout' : 'import.error'));
       openRef.current = true;
       setOpen(true);
     } finally { setProcessing(false); }

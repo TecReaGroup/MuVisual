@@ -70,10 +70,23 @@ export async function prepareAudioWithMetadata(file: File, title: string, album:
     if (!conversion.isValid) throw new Error('Unsupported audio codec');
     await conversion.execute();
     if (!target.buffer) throw new Error('Audio metadata output is empty');
-    return new File([target.buffer], file.name, {
+    const taggedFile = new File([target.buffer], file.name, {
       type: file.type || audioFormats[extension].mimeType,
       lastModified: file.lastModified,
     });
+    // Verify the serialized file, since accepting tags does not guarantee the container preserved them.
+    try {
+      const writtenTags = await readAudioMetadata(taggedFile);
+      if (writtenTags.title !== title || writtenTags.album !== album) {
+        throw new Error('Written audio metadata does not match the requested title and album');
+      }
+    } catch (cause) {
+      throw Object.assign(new Error('Audio metadata verification failed'), {
+        cause,
+        code: 'AUDIO_METADATA_WRITE_FAILED',
+      });
+    }
+    return taggedFile;
   } finally {
     input.dispose();
   }
