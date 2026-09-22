@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Instrument, Note } from '../../../entities/music/model/types';
 import { createTimbreLibrary, type TimbreLibrary } from './timbreLibrary';
+import { log, serializeError } from '../../../shared/lib/logger';
 
 type LoadStatus = 'loading' | 'ready' | 'error';
 
@@ -52,7 +53,7 @@ export function usePianoAudio(muted: boolean, volume: number, instrument: Instru
       if (request === selectionRequestRef.current) setLoadState({ instrument, status: 'ready' });
       return true;
     } catch (error) {
-      console.error(`Unable to load ${instrument} timbre`, error);
+      log('error', 'Playback', '音色加载失败', { ...serializeError(error), instrument });
       if (request === selectionRequestRef.current) setLoadState({ instrument, status: 'error' });
       return false;
     }

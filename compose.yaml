@@ -16,3 +16,6 @@ services:
       MODAL_URL: "your-modal-url"
       MODAL_KEY: "your-modal-key"
       MODAL_SECRET: "your-modal-secret"
+      NAVIDROME_URL: "${NAVIDROME_URL:-}"
+      NAVIDROME_ACCOUNT: "${NAVIDROME_ACCOUNT:-}"
+      NAVIDROME_PASSWORD: "${NAVIDROME_PASSWORD:-}"

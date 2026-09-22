@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AudioSource, Instrument, Note } from '../../../entities/music/model/types';
 import { fetchMusicResource } from '../../../shared/lib/fetchMusicResource';
+import { log, serializeError } from '../../../shared/lib/logger';
 import { usePianoAudio } from './usePianoAudio';
 
 const SCHEDULE_INTERVAL_MS = 25;
@@ -162,7 +163,7 @@ export function usePlayback(
       setMediaLoadState({ key: mediaLoadKey, status: 'ready' });
     }).catch(error => {
       if (controller.signal.aborted || (error instanceof DOMException && error.name === 'AbortError')) return;
-      console.error(error);
+      log('error', 'Playback', '音频资源加载失败', serializeError(error));
       setMediaLoadState({ key: mediaLoadKey, status: 'error' });
     });
     mediaLoadRef.current = load;

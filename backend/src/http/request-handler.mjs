@@ -7,6 +7,7 @@ import { getAudioProcessingJob, queueAudioProcessing } from '../modules/audio-pr
 import { readMultipartFile } from '../modules/audio-processing/multipart.mjs';
 import { createSession, hasValidSession, secureEqual, sessionCookie } from '../modules/auth/auth-service.mjs';
 import { encodeLibraryId, findInstrumentMedia, findMedia, readLibrary } from '../modules/library/library-service.mjs';
+import { downloadNavidromeSong, searchNavidrome } from '../modules/navidrome/navidrome-service.mjs';
 import { readJsonBody, sendJson } from '../shared/http.mjs';
 import { streamMedia } from './media-handler.mjs';
 import { streamFrontend } from './static-handler.mjs';
@@ -69,6 +70,30 @@ async function routeRequest(request, response, url, requestId) {
     const upload = await readMultipartFile(request, limits.uploadSize);
     const job = await queueAudioProcessing(upload, requestId);
     sendJson(response, 202, { job });
+    return;
+  }
+
+  if (request.method === 'GET' && url.pathname === '/api/navidrome/search') {
+    try {
+      const songs = await searchNavidrome((url.searchParams.get('q') ?? '').trim());
+      sendJson(response, 200, { songs });
+    } catch (error) {
+      log('error', 'Navidrome', '曲目搜索失败', { requestId, error: serializeError(error) });
+      sendJson(response, 502, { error: error.message === 'NAVIDROME_NOT_CONFIGURED' ? error.message : 'NAVIDROME_REQUEST_FAILED' });
+    }
+    return;
+  }
+
+  const navidromeDownloadMatch = request.method === 'GET' && url.pathname.match(/^\/api\/navidrome\/songs\/([^/]+)\/download$/);
+  if (navidromeDownloadMatch) {
+    try {
+      const { audio, contentType } = await downloadNavidromeSong(decodeURIComponent(navidromeDownloadMatch[1]));
+      response.writeHead(200, { 'Content-Type': contentType, 'Content-Length': audio.length, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+      response.end(audio);
+    } catch (error) {
+      log('error', 'Navidrome', '曲目下载失败', { requestId, error: serializeError(error) });
+      sendJson(response, 502, { error: error.message === 'NAVIDROME_NOT_CONFIGURED' ? error.message : 'NAVIDROME_REQUEST_FAILED' });
+    }
     return;
   }
 

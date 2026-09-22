@@ -376,6 +376,23 @@ input[type=range].roll-scrollbar:focus-visible { outline:2px solid #ffab57; outl
 .audio-upload-submit { min-height:44px; display:flex; align-items:center; justify-content:center; gap:8px; margin-top:2px; border:1px solid #da5c52; color:#fff4ef; background:#d9574d; font-weight:600; }
 .audio-upload-submit:hover:not(:disabled) { border-color:#ff8b80; background:#e76459; }
 .audio-upload-submit:disabled { cursor:not-allowed; opacity:.42; }
+.import-option-library .import-option-icon,.import-option-library:hover .import-option-arrow { color:#adabef; }
+.library-import-form { display:grid; gap:12px; padding:22px; }
+.library-import-search { display:flex; align-items:center; gap:10px; padding:11px 12px; border:1px solid #353c47; background:#10141b; color:#7d8693; }
+.library-import-search input { width:100%; min-width:0; border:0; outline:0; background:transparent; color:#eef0f3; font:inherit; font-size:13px; }
+.library-import-search:focus-within,.library-import-song:focus-visible { outline:2px solid #ffab57; outline-offset:2px; }
+.library-import-limit { color:#7d8693; font-size:12px; }
+.library-import-results { height:300px; max-height:40dvh; overflow-y:auto; overscroll-behavior:contain; scrollbar-width:thin; scrollbar-color:#59616d #141820; border:1px solid #2f3540; }
+.library-import-song { width:100%; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:13px; border:0; border-bottom:1px solid #2f3540; background:#141820; color:#eef0f3; text-align:left; }
+.library-import-song:hover { background:#202530; }
+.library-import-song[aria-pressed="true"] { background:#2b293e; color:#c7c4ff; }
+.library-import-song>span { min-width:0; }
+.library-import-song>svg { flex-shrink:0; }
+.library-import-song strong,.library-import-song small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.library-import-song strong { font-size:14px; font-weight:550; }
+.library-import-song small { margin-top:6px; color:#929ba9; font-size:12px; }
+.library-import-status { display:flex; align-items:center; justify-content:center; gap:8px; padding:24px 12px; color:#929ba9; font-size:13px; }
+.library-import-error { box-sizing:border-box; width:100%; margin:0; padding:11px 13px; border-left:2px solid #ff6b5f; color:#ffaaa3; background:#1c1518; font-size:12px; line-height:1.7; text-align:center; overflow-wrap:anywhere; }
 .import-file-input { position:fixed; width:1px; height:1px; overflow:hidden; opacity:0; pointer-events:none; }
 .processing-state { min-height:230px; display:grid; justify-items:center; align-content:center; gap:13px; padding:34px 24px; text-align:center; }
 .processing-spinner { width:58px; height:58px; display:grid; place-items:center; margin-bottom:4px; border:1px solid #67403d; color:#ff8177; background:#1b171c; }

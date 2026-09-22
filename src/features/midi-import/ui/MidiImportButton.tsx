@@ -1,9 +1,13 @@
-import { ArrowRight, AudioLines, FileMusic, FileUp, LoaderCircle, X } from 'lucide-react';
+import { ArrowRight, AudioLines, FileMusic, FileUp, Library, LoaderCircle, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useI18n } from '../../../shared/i18n';
-import { prepareAudioWithMetadata, readAudioMetadata, supportedAudioAccept, supportsAudioMetadata } from '../lib/audioMetadata';
+import { log, serializeError } from '../../../shared/lib/logger';
+import { readAudioMetadata, supportedAudioAccept, supportsAudioMetadata } from '../lib/audioMetadata';
+import { importAudio } from '../lib/audioImport';
+import { importLibrarySong, type NavidromeSong } from '../lib/libraryImport';
 import { parseMidiFile, type ImportedMidi } from '../model/parseMidiFile';
+import { LibraryImportForm } from './LibraryImportForm';
 
 export function MidiImportButton({ onImport, onProcessed }: { onImport: (midi: ImportedMidi) => void; onProcessed?: (item: unknown, modalOpen: boolean) => void }) {
   const { t } = useI18n();
@@ -11,6 +15,7 @@ export function MidiImportButton({ onImport, onProcessed }: { onImport: (midi: I
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [audioFormOpen, setAudioFormOpen] = useState(false);
+  const [libraryFormOpen, setLibraryFormOpen] = useState(false);
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [songTitle, setSongTitle] = useState('');
   const [albumTitle, setAlbumTitle] = useState('');
@@ -21,6 +26,7 @@ export function MidiImportButton({ onImport, onProcessed }: { onImport: (midi: I
     openRef.current = false;
     setOpen(false);
     setAudioFormOpen(false);
+    setLibraryFormOpen(false);
     setAudioFile(null);
     setSongTitle('');
     setAlbumTitle('');
@@ -35,27 +41,6 @@ export function MidiImportButton({ onImport, onProcessed }: { onImport: (midi: I
   }, [open]);
 
   const chooseMidi = (file: File) => void parseMidiFile(file).then(result => result && onImport(result));
-  const waitForAudioJob = async (jobId: string) => {
-    const retryableStatuses = new Set([408, 425, 429, 500, 502, 503, 504]);
-    while (true) {
-      await new Promise(resolve => window.setTimeout(resolve, 3000));
-      try {
-        const response = await fetch(`/api/process-audio/${encodeURIComponent(jobId)}`);
-        if (retryableStatuses.has(response.status)) continue;
-        if (!response.ok && response.status !== 202) throw new Error('job request failed');
-        const result = await response.json();
-        if (result.job?.status === 'failed') {
-          const error = new Error(result.job.error || 'audio processing failed');
-          if (result.job.errorCode) Object.assign(error, { code: result.job.errorCode });
-          throw error;
-        }
-        if (result.job?.status === 'completed' && result.item) return result.item;
-      } catch (error) {
-        if (error instanceof TypeError) continue;
-        throw error;
-      }
-    }
-  };
   const selectAudio = async (file: File) => {
     if (!supportsAudioMetadata(file)) {
       setAudioFile(null);
@@ -70,12 +55,33 @@ export function MidiImportButton({ onImport, onProcessed }: { onImport: (midi: I
       setAudioFile(file);
       setSongTitle(tags.title);
       setAlbumTitle(tags.album);
-    } catch {
+    } catch (error) {
+      log('warn', 'AudioImport', '读取音频元数据失败', serializeError(error));
       setAudioFile(null);
       setSongTitle('');
       setAlbumTitle('');
       setError(t('import.unsupportedAudio'));
     }
+  };
+  const showProcessingError = (processError: unknown) => {
+    log('error', 'AudioImport', '音频导入失败', serializeError(processError));
+    const errorCode = (processError as Error & { code?: string }).code;
+    setError(t(errorCode === 'AUDIO_METADATA_WRITE_FAILED' ? 'import.metadataWriteFailed'
+      : errorCode === 'AUDIO_METADATA_REQUIRED' ? 'import.metadataRequired'
+      : errorCode === 'AUDIO_FORMAT_UNSUPPORTED' ? 'import.unsupportedAudio'
+      : errorCode === 'LIBRARY_DOWNLOAD_FAILED' ? 'import.libraryDownloadError'
+      : errorCode === 'AUDIO_PROCESSING_TIMEOUT' ? 'import.timeout' : 'import.error'));
+    openRef.current = true;
+    setOpen(true);
+  };
+  const chooseLibrarySong = async (song: NavidromeSong) => {
+    setProcessing(true); setError(null);
+    try {
+      const item = await importLibrarySong(song);
+      onProcessed?.(item, openRef.current);
+    } catch (processError) {
+      showProcessingError(processError);
+    } finally { setProcessing(false); }
   };
   const chooseAudio = async () => {
     const title = songTitle.trim();
@@ -86,20 +92,10 @@ export function MidiImportButton({ onImport, onProcessed }: { onImport: (midi: I
     }
     setProcessing(true); setError(null);
     try {
-      const taggedFile = await prepareAudioWithMetadata(audioFile, title, album);
-      const form = new FormData(); form.set('file', taggedFile);
-      const response = await fetch('/api/process-audio', { method: 'POST', body: form });
-      if (!response.ok) throw new Error('upload failed');
-      const result = await response.json();
-      if (!result.job?.id) throw new Error('job id missing');
-      const item = await waitForAudioJob(result.job.id);
+      const item = await importAudio(audioFile, title, album);
       onProcessed?.(item, openRef.current);
     } catch (processError) {
-      const errorCode = (processError as Error & { code?: string }).code;
-      setError(t(errorCode === 'AUDIO_METADATA_WRITE_FAILED' ? 'import.metadataWriteFailed'
-        : errorCode === 'AUDIO_PROCESSING_TIMEOUT' ? 'import.timeout' : 'import.error'));
-      openRef.current = true;
-      setOpen(true);
+      showProcessingError(processError);
     } finally { setProcessing(false); }
   };
 
@@ -127,12 +123,15 @@ export function MidiImportButton({ onImport, onProcessed }: { onImport: (midi: I
         </label>
         <button className="audio-upload-submit" type="submit" disabled={!audioFile}><FileUp size={16} /> {t('import.submitAudio')}</button>
         <input ref={audioInputRef} className="import-file-input" type="file" accept={supportedAudioAccept} onChange={event => { const file = event.target.files?.[0]; if (file) void selectAudio(file); event.currentTarget.value = ''; }} />
-      </form> : <div className="import-options">
+      </form> : libraryFormOpen ? <LibraryImportForm onConfirm={song => { void chooseLibrarySong(song); }} /> : <div className="import-options">
         <button className="import-option import-option-midi" type="button" onClick={() => midiInputRef.current?.click()}>
           <span className="import-option-icon"><FileMusic size={23} /></span><span className="import-option-copy"><strong>{t('import.midi')}</strong><small>{t('import.midiHint')}</small></span><ArrowRight className="import-option-arrow" size={18} />
         </button>
         <button className="import-option import-option-audio" type="button" onClick={() => { setAudioFormOpen(true); setError(null); }}>
           <span className="import-option-icon"><AudioLines size={23} /></span><span className="import-option-copy"><strong>{t('import.audio')}</strong><small>{t('import.audioHint')}</small></span><ArrowRight className="import-option-arrow" size={18} />
+        </button>
+        <button className="import-option import-option-library" type="button" onClick={() => { setLibraryFormOpen(true); setError(null); }}>
+          <span className="import-option-icon"><Library size={23} /></span><span className="import-option-copy"><strong>{t('import.library')}</strong><small>{t('import.libraryHint')}</small></span><ArrowRight className="import-option-arrow" size={18} />
         </button>
         <input ref={midiInputRef} className="import-file-input" type="file" accept=".mid,.midi" onChange={event => { const file = event.target.files?.[0]; if (file) chooseMidi(file); event.currentTarget.value = ''; }} />
       </div>}

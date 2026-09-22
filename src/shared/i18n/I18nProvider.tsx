@@ -2,6 +2,16 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 
 const translations = {
   en: {
+    'import.library': 'Library',
+    'import.libraryHint': 'Search and import from Navidrome',
+    'import.librarySearch': 'Search songs, artists or albums',
+    'import.libraryLimit': 'Showing up to 20 tracks',
+    'import.libraryLoading': 'Loading tracks…',
+    'import.libraryEmpty': 'No tracks found.',
+    'import.libraryConfirm': 'Download and process',
+    'import.libraryNotConfigured': 'The music library is not connected yet. Please contact the administrator.',
+    'import.librarySearchError': 'Could not load tracks. Check the Navidrome connection and credentials, then try again.',
+    'import.libraryDownloadError': 'Could not download this track from Navidrome. Please try again.',
     'app.title': 'MuVisual | MIDI Visualizer',
     'language.current': 'EN',
     'language.switch': 'Switch to Chinese',
@@ -99,6 +109,16 @@ const translations = {
     'pianoRoll.scroll': 'Scroll piano visualizer playback position',
   },
   zh: {
+    'import.library': 'Library',
+    'import.libraryHint': '从 Navidrome 搜索并导入曲目',
+    'import.librarySearch': '搜索歌曲、歌手或专辑',
+    'import.libraryLimit': '最多显示 20 首曲目',
+    'import.libraryLoading': '正在加载曲目…',
+    'import.libraryEmpty': '没有找到曲目。',
+    'import.libraryConfirm': '下载并处理',
+    'import.libraryNotConfigured': '音乐库尚未连接，请联系管理员完成配置。',
+    'import.librarySearchError': '无法加载曲目，请检查 Navidrome 连接及账号配置后重试。',
+    'import.libraryDownloadError': '无法从 Navidrome 下载此曲目，请重试。',
     'app.title': 'MuVisual | MIDI 可视化',
     'language.current': '中',
     'language.switch': '切换至英文',

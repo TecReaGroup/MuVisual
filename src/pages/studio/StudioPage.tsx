@@ -8,6 +8,7 @@ import { PlaybackControls, usePlayback } from '../../features/playback';
 import { JianpuView } from '../../features/score';
 import { LanguageButton, useI18n } from '../../shared/i18n';
 import { fetchMusicResource } from '../../shared/lib/fetchMusicResource';
+import { log, serializeError } from '../../shared/lib/logger';
 
 type StudioPageProps = {
   initialMidi?: ImportedMidi;
@@ -67,7 +68,7 @@ export function StudioPage({ initialMidi, onBack }: StudioPageProps) {
         setNotes(midi.notes);
       } catch (error) {
         if (controller.signal.aborted) return;
-        console.error(error);
+        log('error', 'Studio', '乐器 MIDI 加载失败', { ...serializeError(error), instrument });
         setMidiErrorInstrument(instrument);
       }
     }

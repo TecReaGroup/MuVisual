@@ -14,6 +14,9 @@ export const environment = {
   modalKey: process.env.MODAL_KEY,
   modalSecret: process.env.MODAL_SECRET,
   modalUrl: process.env.MODAL_URL,
+  navidromeUrl: process.env.NAVIDROME_URL,
+  navidromeAccount: process.env.NAVIDROME_ACCOUNT,
+  navidromePassword: process.env.NAVIDROME_PASSWORD,
   port: Number(process.env.PORT || 8787),
 };
 
