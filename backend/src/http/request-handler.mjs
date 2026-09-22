@@ -75,8 +75,8 @@ async function routeRequest(request, response, url, requestId) {
 
   if (request.method === 'GET' && url.pathname === '/api/navidrome/search') {
     try {
-      const songs = await searchNavidrome((url.searchParams.get('q') ?? '').trim());
-      sendJson(response, 200, { songs });
+      const searchMatches = await searchNavidrome((url.searchParams.get('q') ?? '').trim());
+      sendJson(response, 200, searchMatches);
     } catch (error) {
       log('error', 'Navidrome', '曲目搜索失败', { requestId, error: serializeError(error) });
       sendJson(response, 502, { error: error.message === 'NAVIDROME_NOT_CONFIGURED' ? error.message : 'NAVIDROME_REQUEST_FAILED' });

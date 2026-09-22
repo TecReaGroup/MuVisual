@@ -82,7 +82,7 @@ export function PlaybackControls(props: PlaybackControlsProps) {
     </div>
     <div className="control">
       <div><span>{t('playback.masterVolume')}</span><b>{props.muted ? 0 : props.volume}<small>%</small></b></div>
-      <input {...rangePointerHandlers} type="range" min="0" max="100" value={props.volume} onChange={event => props.onVolumeChange(+event.target.value)} />
+      <input {...rangePointerHandlers} type="range" min="0" max="200" value={props.volume} onChange={event => props.onVolumeChange(+event.target.value)} />
     </div>
     <button className="mute" onClick={() => props.onMutedChange(!props.muted)}>{props.muted ? <VolumeX size={17} /> : <Volume2 size={17} />}{t(props.muted ? 'playback.unmute' : 'playback.mute')}</button>
     <div className="audio-source-control">

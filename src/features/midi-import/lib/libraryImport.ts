@@ -4,7 +4,7 @@ import { log, serializeError } from '../../../shared/lib/logger';
 
 export type NavidromeSong = { id: string; title: string; album: string; artist: string; suffix: string };
 
-export async function searchLibrarySongs(query: string, signal: AbortSignal): Promise<NavidromeSong[]> {
+export async function searchLibrarySongs(query: string, signal: AbortSignal): Promise<{ songs: NavidromeSong[]; hasMore: boolean }> {
   const startedAt = performance.now();
   const endpoint = '/api/navidrome/search';
   let response: Response | undefined;
@@ -13,12 +13,12 @@ export async function searchLibrarySongs(query: string, signal: AbortSignal): Pr
     response = await fetch(`${endpoint}?q=${encodeURIComponent(query.trim())}`, { signal });
     const payload = await response.json();
     if (!response.ok) throw new Error(typeof payload.error === 'string' ? payload.error : 'NAVIDROME_REQUEST_FAILED');
-    if (!Array.isArray(payload.songs) || !payload.songs.every((song: NavidromeSong) => song
+    if (typeof payload.hasMore !== 'boolean' || !Array.isArray(payload.songs) || !payload.songs.every((song: NavidromeSong) => song
       && ['id', 'title', 'album', 'artist', 'suffix'].every(key => typeof song[key as keyof NavidromeSong] === 'string'))) {
       throw new Error('Invalid Navidrome search response');
     }
     log('debug', 'Navidrome', '曲目加载完成', { endpoint, statusCode: response.status, requestId: response.headers.get('X-Request-Id'), durationMs: Math.round(performance.now() - startedAt), count: payload.songs.length });
-    return payload.songs;
+    return { songs: payload.songs, hasMore: payload.hasMore };
   } catch (error) {
     log(signal.aborted ? 'debug' : 'error', 'Navidrome', signal.aborted ? '曲目请求已取消' : '曲目加载失败', {
       ...(!signal.aborted ? serializeError(error) : {}), endpoint, method: 'GET', statusCode: response?.status,

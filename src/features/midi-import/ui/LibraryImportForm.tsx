@@ -7,6 +7,7 @@ export function LibraryImportForm({ onConfirm }: { onConfirm: (song: NavidromeSo
   const { t } = useI18n();
   const [query, setQuery] = useState('');
   const [songs, setSongs] = useState<NavidromeSong[]>([]);
+  const [hasMore, setHasMore] = useState(false);
   const [selectedSong, setSelectedSong] = useState<NavidromeSong | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -15,16 +16,17 @@ export function LibraryImportForm({ onConfirm }: { onConfirm: (song: NavidromeSo
     const controller = new AbortController();
     const timer = window.setTimeout(async () => {
       try {
-        const matches = await searchLibrarySongs(query, controller.signal);
+        const matches = await searchLibrarySongs(query.trim(), controller.signal);
         if (controller.signal.aborted) return;
-        setSongs(matches);
+        setSongs(matches.songs);
+        setHasMore(matches.hasMore);
       } catch (searchError) {
         if (controller.signal.aborted) return;
         setError(t(searchError instanceof Error && searchError.message === 'NAVIDROME_NOT_CONFIGURED' ? 'import.libraryNotConfigured' : 'import.librarySearchError'));
       } finally {
         if (!controller.signal.aborted) setLoading(false);
       }
-    }, 300);
+    }, 500);
     return () => { window.clearTimeout(timer); controller.abort(); };
   }, [query, t]);
 
@@ -32,10 +34,13 @@ export function LibraryImportForm({ onConfirm }: { onConfirm: (song: NavidromeSo
     <label className="library-import-search">
       <Search size={17} />
       <input autoFocus aria-label={t('import.librarySearch')} placeholder={t('import.librarySearch')} value={query} onChange={event => {
-        setQuery(event.target.value); setSelectedSong(null); setSongs([]); setError(null); setLoading(true);
+        setQuery(event.target.value);
+        setSelectedSong(null); setSongs([]); setError(null); setLoading(true);
+      }} onKeyDown={event => {
+        if (event.key === 'Enter') event.preventDefault();
       }} />
     </label>
-    <small className="library-import-limit">{t('import.libraryLimit')}</small>
+    {!loading && !error && <small className="library-import-limit">{hasMore ? t('import.libraryLimit') : t('import.libraryCount', { count: songs.length })}</small>}
     <div className="library-import-results" aria-busy={loading} aria-label={t('import.library')}>
       {loading ? <p className="library-import-status" role="status"><LoaderCircle className="spin" size={18} />{t('import.libraryLoading')}</p>
         : error ? <p className="library-import-error" role="alert">{error}</p>
